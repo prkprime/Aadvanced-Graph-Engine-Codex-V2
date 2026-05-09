@@ -14,11 +14,6 @@ public class IntegerColumnarStore {
     private static final int DEFAULT_INITIAL_ROW_CAPACITY = 1024;
 
     /**
-     * The only valid column index for this single-column store.
-     */
-    private static final int ONLY_COLUMN_INDEX = 0;
-
-    /**
      * Backing array that stores one encoded integer value per row.
      */
     private int[] intStorage;
@@ -77,13 +72,11 @@ public class IntegerColumnarStore {
      * index is {@code 0}.
      *
      * @param rowId row id to read
-     * @param columnIndex column selector; must be {@code 0}
      * @return encoded integer value for the row
      * @throws IndexOutOfBoundsException when {@code rowId} is outside the stored row range
      * @throws IndexOutOfBoundsException when {@code columnIndex} is not {@code 0}
      */
-    public synchronized int getInt(int rowId, int columnIndex) {
-        validateColumnIndex(columnIndex);
+    public synchronized int getInt(int rowId) {
         validateRowIndex(rowId);
         return this.intStorage[rowId];
     }
@@ -132,17 +125,6 @@ public class IntegerColumnarStore {
     private void validateRowIndex(int rowId) {
         if (rowId < 0 || rowId >= this.rowCount) {
             throw new IndexOutOfBoundsException("Row id " + rowId + " is outside stored row range [0, " + this.rowCount + ").");
-        }
-    }
-
-    /**
-     * Ensures the requested column exists in this single-column store.
-     *
-     * @param columnIndex column index to validate
-     */
-    private void validateColumnIndex(int columnIndex) {
-        if (columnIndex != ONLY_COLUMN_INDEX) {
-            throw new IndexOutOfBoundsException("Column index " + columnIndex + " is invalid for a single-column integer store.");
         }
     }
 }
