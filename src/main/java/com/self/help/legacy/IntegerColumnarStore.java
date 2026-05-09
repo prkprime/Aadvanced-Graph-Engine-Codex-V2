@@ -24,7 +24,7 @@ public class IntegerColumnarStore {
     private int rowCount;
 
     /**
-     *
+     * Creates an empty integer store with the default initial row capacity.
      */
     public IntegerColumnarStore() {
         this(DEFAULT_INITIAL_ROW_CAPACITY);
@@ -68,13 +68,10 @@ public class IntegerColumnarStore {
 
     /**
      * Reads the encoded value for a stored row.
-     * Because this store owns exactly one integer column, the only valid column
-     * index is {@code 0}.
      *
      * @param rowId row id to read
      * @return encoded integer value for the row
      * @throws IndexOutOfBoundsException when {@code rowId} is outside the stored row range
-     * @throws IndexOutOfBoundsException when {@code columnIndex} is not {@code 0}
      */
     public synchronized int getInt(int rowId) {
         validateRowIndex(rowId);
@@ -88,6 +85,20 @@ public class IntegerColumnarStore {
      */
     public synchronized int getRowCount() {
         return this.rowCount;
+    }
+
+    /**
+     * Returns a debug representation of the logical store contents.
+     * Only appended rows are included; unused backing-array capacity is omitted.
+     *
+     * @return store summary with row count and committed integer values
+     */
+    @Override
+    public synchronized String toString() {
+        return "IntegerColumnarStore{" +
+                "rowCount=" + rowCount +
+                ", values=" + Arrays.toString(Arrays.copyOf(intStorage, rowCount)) +
+                '}';
     }
 
     /**
