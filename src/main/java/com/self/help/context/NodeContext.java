@@ -46,13 +46,13 @@ public class NodeContext {
      * Zero-based column index in the {@link RawDataStore} for the from-node
      * value represented by this context.
      */
-    int fromDataCubeIndex;
+    private final int fromDataCubeIndex;
 
     /**
      * Zero-based column index in the {@link RawDataStore} for the to-node value
      * represented by this context.
      */
-    int toDataCubeIndex;
+    private final int toDataCubeIndex;
 
     /**
      * Creates a node context for a pair of source columns.

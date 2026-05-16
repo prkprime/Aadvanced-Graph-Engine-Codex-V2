@@ -1,9 +1,9 @@
 package com.self.help.storage;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Maintains a stable two-way mapping between raw string values and dense
@@ -11,10 +11,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * indexes while still being able to hydrate ids back to strings when needed.
  */
 public class BiDirectionalDictionary {
-    // String to ID for Ingestion
-    private Map<String, Integer> valueToId = new ConcurrentHashMap<>();
-    // ID to String for UI Hydration (Index is the ID)
-    private List<String> idToValue = new ArrayList<>();
+    private final Map<String, Integer> valueToId = new HashMap<>();
+    private final List<String> idToValue = new ArrayList<>();
 
     /**
      * Returns the dictionary id for a value, creating a new id when the value
@@ -38,7 +36,7 @@ public class BiDirectionalDictionary {
      * @return original value stored for the id
      * @throws IndexOutOfBoundsException when the id is outside the dictionary range
      */
-    public String getValue(int id) {
+    public synchronized String getValue(int id) {
         return idToValue.get(id);
     }
 
@@ -47,17 +45,17 @@ public class BiDirectionalDictionary {
      *
      * @return unique value count
      */
-    public int size() {
+    public synchronized int size() {
         return idToValue.size();
     }
 
     /**
      * Looks up an existing dictionary id without mutating the dictionary.
      *
-     * @param name value to look up
+     * @param value value to look up
      * @return dictionary id, or {@code -1} when the value has not been encoded
      */
-    public int getIdIfExists(String name) {
-        return valueToId.getOrDefault(name, -1);
+    public synchronized int getIdIfExists(String value) {
+        return valueToId.getOrDefault(value, -1);
     }
 }

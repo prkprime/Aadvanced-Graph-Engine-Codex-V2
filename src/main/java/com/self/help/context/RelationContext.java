@@ -19,23 +19,23 @@ public class RelationContext {
      * Dictionary used to encode relation values to dense integer ids and decode
      * them back to their original strings when results are hydrated.
      */
-    BiDirectionalDictionary biDirectionalDictionary;
+    private final BiDirectionalDictionary biDirectionalDictionary;
 
     /**
      * Zero-based column index in the {@link RawDataStore} for the relation
      * column represented by this context.
      */
-    int indexFromDataCube;
+    private final int indexFromDataCube;
 
     /**
      * Inverted index from encoded relation values to raw row ids.
      */
-    InvertedIndexColumn invertedIndexColumn;
+    private final InvertedIndexColumn invertedIndexColumn;
 
     /**
      * Encoded integer relation values, stored by row id.
      */
-    IntegerColumnarStore relationIntegerColumnarStore;
+    private final IntegerColumnarStore relationIntegerColumnarStore;
 
     /**
      * Creates a relation context for one source relation column.

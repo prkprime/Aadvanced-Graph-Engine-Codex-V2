@@ -8,17 +8,26 @@ import lombok.NoArgsConstructor;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class MappingSpecUtil {
 
     /**
+     * Validates that a graph mapping can be resolved against the supplied raw
+     * data store. From-node and to-node attributes must be paired by position,
+     * each mapped column must exist, and from/to node mappings must not reuse
+     * the same source columns.
      *
-     * @param dataCube
-     * @param spec
+     * @param dataCube raw source store that owns the mapped columns
+     * @param spec graph mapping to validate
+     * @throws IllegalArgumentException when the mapping is inconsistent or references missing columns
      */
     public static void validateSpec(RawDataStore dataCube, MappingSpec spec) {
+        Objects.requireNonNull(dataCube, "dataCube");
+        Objects.requireNonNull(spec, "spec");
+
         NodeSpec fromSpec = spec.getFromNodeSpec();
         NodeSpec toSpec = spec.getToNodeSpec();
 
@@ -26,8 +35,13 @@ public class MappingSpecUtil {
         List<String> toAttrs = toSpec.getNodeAttributeNames();
 
         if (fromAttrs.size() != toAttrs.size()) {
-            throw new IllegalArgumentException("Attribute size mismatch: fromNodeSpec has " + fromAttrs.size() + " attributes, but toNodeSpec has " + toAttrs.size());
+            throw new IllegalArgumentException("Attribute size mismatch: fromNodeSpec has " + fromAttrs.size() +
+                    " attributes, but toNodeSpec has " + toAttrs.size());
         }
+
+        verifyNoDuplicates("fromNodeSpec attributes", fromAttrs);
+        verifyNoDuplicates("toNodeSpec attributes", toAttrs);
+        verifyNoDuplicates("relation columns", spec.getRelationColumnNames());
 
         Set<String> fromCore = new HashSet<>();
         fromCore.add(fromSpec.getIdColumnName());
@@ -66,20 +80,34 @@ public class MappingSpecUtil {
         verifyColumnExists(dataCube, toSpec.getIdColumnName());
         verifyColumnExists(dataCube, fromSpec.getLabelColumnName());
         verifyColumnExists(dataCube, toSpec.getLabelColumnName());
-        for (String attr : fromAttrs) {
-            verifyColumnExists(dataCube, attr);
+        verifyColumnsExist(dataCube, fromAttrs);
+        verifyColumnsExist(dataCube, toAttrs);
+        verifyColumnsExist(dataCube, spec.getRelationColumnNames());
+    }
+
+    private static void verifyNoDuplicates(String groupName, List<String> columnNames) {
+        Set<String> uniqueNames = new HashSet<>();
+        Set<String> duplicateNames = new HashSet<>();
+        for (String columnName : columnNames) {
+            if (!uniqueNames.add(columnName)) {
+                duplicateNames.add(columnName);
+            }
         }
-        for (String attr : toAttrs) {
-            verifyColumnExists(dataCube, attr);
+
+        if (!duplicateNames.isEmpty()) {
+            throw new IllegalArgumentException("Duplicate columns in " + groupName + ": " + duplicateNames);
         }
-        for (String rel : spec.getRelationColumnNames()) {
-            verifyColumnExists(dataCube, rel);
+    }
+
+    private static void verifyColumnsExist(RawDataStore dataCube, List<String> columnNames) {
+        for (String columnName : columnNames) {
+            verifyColumnExists(dataCube, columnName);
         }
     }
 
     private static void verifyColumnExists(RawDataStore dataCube, String columnName) {
         if (columnName == null || columnName.trim().isEmpty() || dataCube.getColumnIndex(columnName) == -1) {
-            throw new IllegalArgumentException("Mapping violation: Column '" + columnName + "' does not exist in the DataCube.");
+            throw new IllegalArgumentException("Mapping violation: column '" + columnName + "' does not exist in the raw data store.");
         }
     }
 }

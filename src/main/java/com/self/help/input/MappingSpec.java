@@ -3,6 +3,7 @@ package com.self.help.input;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Describes how raw source columns should be interpreted as graph edges.
@@ -11,6 +12,19 @@ import java.util.List;
  */
 public record MappingSpec(@NotNull NodeSpec fromNodeSpec, @NotNull NodeSpec toNodeSpec,
                           @NotNull List<String> relations) {
+    /**
+     * Creates a graph mapping with an immutable relation-column list.
+     *
+     * @param fromNodeSpec source-column mapping for the edge's from-node side
+     * @param toNodeSpec source-column mapping for the edge's to-node side
+     * @param relations source columns that describe edge/relation properties
+     */
+    public MappingSpec {
+        Objects.requireNonNull(fromNodeSpec, "fromNodeSpec");
+        Objects.requireNonNull(toNodeSpec, "toNodeSpec");
+        relations = List.copyOf(relations);
+    }
+
     /**
      * Returns the source-column mapping for the edge's from-node side.
      *
@@ -41,9 +55,9 @@ public record MappingSpec(@NotNull NodeSpec fromNodeSpec, @NotNull NodeSpec toNo
     }
 
     /**
-     * Returns the total number of columns that are participating in the MappingSpec
+     * Returns the total number of source columns participating in this mapping.
      *
-     * @return total number of participating columns in Mapping Spec
+     * @return total number of participating source columns
      */
     public int getNumberOfTotalColumns() {
         return getFromNodeSpec().getNumberOfTotalColumns() +

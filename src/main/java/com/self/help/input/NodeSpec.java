@@ -3,7 +3,6 @@ package com.self.help.input;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -23,9 +22,9 @@ public record NodeSpec(@NotNull String idColumnName, @Nullable String labelColum
      * @param attributes source columns containing node attributes, or {@code null} for no attributes
      */
     public NodeSpec(@NotNull String idColumnName, @Nullable String labelColumnName, @Nullable List<String> attributes) {
-        this.idColumnName = idColumnName;
-        this.labelColumnName = Objects.requireNonNullElse(labelColumnName, idColumnName);
-        this.attributes = Objects.requireNonNullElse(attributes, Collections.emptyList());
+        this.idColumnName = Objects.requireNonNull(idColumnName, "idColumnName");
+        this.labelColumnName = Objects.requireNonNullElse(labelColumnName, this.idColumnName);
+        this.attributes = attributes == null ? List.of() : List.copyOf(attributes);
     }
 
     /**
@@ -59,9 +58,9 @@ public record NodeSpec(@NotNull String idColumnName, @Nullable String labelColum
     }
 
     /**
-     * Returns the number of columns participating in the Node Spec
+     * Returns the number of source columns participating in this node mapping.
      *
-     * @return number of columns participating in the node spec
+     * @return number of participating source columns
      */
     public int getNumberOfTotalColumns() {
         return 1 + 1 + getNodeAttributeNames().size();

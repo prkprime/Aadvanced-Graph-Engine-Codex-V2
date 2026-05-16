@@ -3,7 +3,10 @@ package com.self.help.legacy;
 import lombok.Data;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Simple legacy-friendly columnar store for raw string data.
@@ -16,7 +19,7 @@ public class RawDataStore {
     private final @NotNull List<String> columnNames;
     int size;
     final Map<String, Integer> columnNameToIndexMap = new LinkedHashMap<>();
-    final List<String>[] columns;
+    final List<List<String>> columns;
 
     /**
      * Creates an empty columnar raw store with the supplied column order.
@@ -24,12 +27,15 @@ public class RawDataStore {
      * @param columnNames source column names in storage order
      */
     public RawDataStore(@NotNull List<String> columnNames) {
-        columns = new List[columnNames.size()];
-        for (int index = 0; index < columnNames.size(); index++) {
-            columnNameToIndexMap.putIfAbsent(columnNames.get(index), columnNameToIndexMap.size());
-            columns[index] = new ArrayList<String>();
+        this.columnNames = List.copyOf(columnNames);
+        columns = new ArrayList<>(this.columnNames.size());
+        for (int index = 0; index < this.columnNames.size(); index++) {
+            String columnName = this.columnNames.get(index);
+            if (columnNameToIndexMap.put(columnName, index) != null) {
+                throw new IllegalArgumentException("Duplicate column name: " + columnName);
+            }
+            columns.add(new ArrayList<>());
         }
-        this.columnNames = columnNames;
     }
 
     /**
@@ -37,14 +43,14 @@ public class RawDataStore {
      *
      * @param values row values in the same order as the configured columns
      * @return assigned row index
-     * @throws IllegalArgumentException when the number of values does not match the number of mapped columns
+     * @throws IllegalArgumentException when the number of values does not match the configured columns
      */
     public synchronized int ingestRow(@NotNull String[] values) {
-        if (values.length != columnNameToIndexMap.size()) {
-            throw new IllegalArgumentException();
+        if (values.length != columns.size()) {
+            throw new IllegalArgumentException("Expected " + columns.size() + " values, but received " + values.length + ".");
         }
         for (int index = 0; index < values.length; index++) {
-            columns[index].add(values[index]);
+            columns.get(index).add(values[index]);
         }
         return size++;
     }
@@ -59,7 +65,7 @@ public class RawDataStore {
         if (rowIndex < 0 || rowIndex >= size) {
             return null;
         }
-        return Arrays.stream(columns).map(column -> column.get(rowIndex)).
+        return columns.stream().map(column -> column.get(rowIndex)).
                 toList().
                 toArray(new String[0]);
     }
@@ -82,6 +88,6 @@ public class RawDataStore {
      * @return stored string value
      */
     public String getString(int rowId, int columnIndex) {
-        return columns[columnIndex].get(rowId);
+        return columns.get(columnIndex).get(rowId);
     }
 }

@@ -17,6 +17,7 @@ import static com.self.help.util.MappingSpecUtil.validateSpec;
  * RoaringBitmap-backed inverted indexes.
  */
 public class GraphIngestionEngine {
+    private final RawDataStore dataCube;
     private final GraphEngineContext graphEngineContext;
     private final int[] targetIndexToDataCubeIndex;
 
@@ -37,6 +38,7 @@ public class GraphIngestionEngine {
      */
     public GraphIngestionEngine(RawDataStore dataCube, MappingSpec spec) {
         validateSpec(dataCube, spec);
+        this.dataCube = dataCube;
         graphEngineContext = new GraphEngineContext(dataCube, spec);
         numericColumnarStores = graphEngineContext.flatMapIntegerColumnarStores();
 
@@ -45,12 +47,32 @@ public class GraphIngestionEngine {
         targetIndexToDataCubeIndex = graphEngineContext.flatMapTargetIndexToDataCubeIndex();
     }
 
-    public synchronized void ingest(int rowId, RawDataStore dataCube) {
+    /**
+     * Ingests one raw row from the store used to construct this engine.
+     *
+     * @param rowId zero-based source row id to ingest
+     */
+    public synchronized void ingest(int rowId) {
         for (int i = 0; i < targetIndexToDataCubeIndex.length; i++) {
-            String targetData = dataCube.getString(rowId, targetIndexToDataCubeIndex[i]);
+            String targetData = this.dataCube.getString(rowId, targetIndexToDataCubeIndex[i]);
             int orEncode = biDirectionalDictionaries[i].getOrEncode(targetData);
             invertedIndexColumns[i].addRowToValue(orEncode, rowId);
             numericColumnarStores[i].appendRow(rowId, orEncode);
         }
+    }
+
+    /**
+     * Ingests one raw row, preserving the original two-argument API while
+     * rejecting a store different from the one used to build the engine.
+     *
+     * @param rowId zero-based source row id to ingest
+     * @param dataCube raw source store used to construct this engine
+     * @throws IllegalArgumentException when a different raw store is supplied
+     */
+    public synchronized void ingest(int rowId, RawDataStore dataCube) {
+        if (dataCube != this.dataCube) {
+            throw new IllegalArgumentException("Rows must be ingested from the raw store used to construct this engine.");
+        }
+        ingest(rowId);
     }
 }

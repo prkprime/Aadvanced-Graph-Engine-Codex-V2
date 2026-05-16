@@ -38,24 +38,24 @@ public class GraphEngineContext {
     /**
      * Shared context for from-node and to-node id columns.
      */
-    NodeContext idContext;
+    private final NodeContext idContext;
 
     /**
      * Shared context for from-node and to-node label columns.
      */
-    NodeContext labelContext;
+    private final NodeContext labelContext;
 
     /**
      * Contexts for paired from-node and to-node attribute columns, ordered by
      * their position in the mapping specification.
      */
-    NodeContext[] attributesContext;
+    private final NodeContext[] attributesContext;
 
     /**
      * Contexts for relation columns, ordered by their position in the mapping
      * specification.
      */
-    RelationContext[] relationContext;
+    private final RelationContext[] relationContext;
 
     /**
      * Builds all node and relation contexts for the supplied graph mapping.
@@ -100,8 +100,8 @@ public class GraphEngineContext {
         final BiDirectionalDictionary[] biDirectionalDictionaries = new BiDirectionalDictionary[spec.getNumberOfTotalColumns()];
 
         int index = 0;
-        index = copyNodeDictionaries(biDirectionalDictionaries, index); //FROM
-        index = copyNodeDictionaries(biDirectionalDictionaries, index); //TO
+        index = copyNodeDictionaries(biDirectionalDictionaries, index);
+        index = copyNodeDictionaries(biDirectionalDictionaries, index);
         copyRelationDictionaries(biDirectionalDictionaries, index);
         return biDirectionalDictionaries;
     }

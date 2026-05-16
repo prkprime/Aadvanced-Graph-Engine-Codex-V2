@@ -8,16 +8,15 @@ import org.roaringbitmap.RoaringBitmap;
  * allowing fast candidate-row lookup and intersection for selective filters.
  */
 public class InvertedIndexColumn {
-    // Array index = Dict ID from Dictionary
-    // Value = Bitmap of Row IDs
+    private static final int INITIAL_VALUE_CAPACITY = 64;
+
     private RoaringBitmap[] bitmaps;
 
     /**
      * Creates an empty dictionary-id to row-id inverted index.
      */
     public InvertedIndexColumn() {
-        // Starting with 64 slots for unique values
-        this.bitmaps = new RoaringBitmap[64];
+        this.bitmaps = new RoaringBitmap[INITIAL_VALUE_CAPACITY];
     }
 
     /**
@@ -29,7 +28,10 @@ public class InvertedIndexColumn {
      * @param rowId row id to associate with the encoded value
      */
     public void addRowToValue(int dictId, int rowId) {
-        // Ensure the array can accommodate the Dict ID
+        if (dictId < 0) {
+            throw new IllegalArgumentException("Dictionary id cannot be negative.");
+        }
+
         if (dictId >= bitmaps.length) {
             expand(dictId);
         }
@@ -43,13 +45,11 @@ public class InvertedIndexColumn {
     private void expand(int requiredDictId) {
         int newCapacity = bitmaps.length;
 
-        // Double the capacity until it can hold the required Dict ID
         while (newCapacity <= requiredDictId) {
             newCapacity *= 2;
         }
 
         RoaringBitmap[] newArray = new RoaringBitmap[newCapacity];
-        // High-performance copy of the bitmap references
         System.arraycopy(bitmaps, 0, newArray, 0, bitmaps.length);
         this.bitmaps = newArray;
     }
@@ -64,7 +64,6 @@ public class InvertedIndexColumn {
      * @return bitmap containing matching row ids, or an empty bitmap when absent
      */
     public RoaringBitmap getRowsForValue(int dictId) {
-        // If the query asks for a Dict ID outside current range, return empty
         if (dictId < 0 || dictId >= bitmaps.length || bitmaps[dictId] == null) {
             return new RoaringBitmap();
         }
@@ -107,6 +106,7 @@ public class InvertedIndexColumn {
     public boolean intersectInto(RoaringBitmap candidateRows, int dictId) {
         RoaringBitmap bitmap = getRowsForValueOrNull(dictId);
         if (bitmap == null) {
+            candidateRows.clear();
             return false;
         }
         candidateRows.and(bitmap);
@@ -116,11 +116,11 @@ public class InvertedIndexColumn {
     /**
      * Convenience alias for adding a row to an encoded value bucket.
      *
-     * @param encodedFromId encoded value id
+     * @param encodedValueId encoded value id
      * @param rowId row id to index
      */
-    public void add(int encodedFromId, int rowId) {
-        addRowToValue(encodedFromId, rowId);
+    public void add(int encodedValueId, int rowId) {
+        addRowToValue(encodedValueId, rowId);
     }
 
     /**
