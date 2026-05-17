@@ -60,4 +60,15 @@ class GraphEngineApplicationTest {
                 .andExpect(jsonPath("$[0]").value("AUTH -[reads]-> USER_DB"))
                 .andExpect(jsonPath("$[14]").value("API -[streams]-> ANALYTICS"));
     }
+
+    @Test
+    void exposesDictionaryEndpoint() throws Exception {
+        mockMvc.perform(get("/api/v1/graphs/default/dictionary"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$", aMapWithSize(16)))
+                .andExpect(jsonPath("$['AUTH']").value("Authentication Service"))
+                .andExpect(jsonPath("$['USER_DB']").value("User Database"))
+                .andExpect(jsonPath("$['ANALYTICS']").value("Analytics Pipeline"));
+    }
 }

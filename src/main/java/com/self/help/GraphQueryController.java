@@ -1,28 +1,114 @@
 package com.self.help;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
+import java.util.Collections;
 import java.util.Map;
 
+/**
+ * REST entry point for graph read APIs.
+ * <p>
+ * The controller is currently a stub layer that defines the public HTTP
+ * contract before the query implementation is wired underneath it. Each route
+ * is scoped by {@code graphId}, which represents the logical graph instance to
+ * query once the service supports multiple loaded graphs. Until that registry
+ * exists, callers can use a placeholder value such as {@code default}.
+ */
 @RestController
-@RequestMapping("/graph")
+@RequiredArgsConstructor
 public class GraphQueryController {
-    private final GraphQueryService graphQueryService;
+    private final GraphIngestionEngine graphIngestionEngine;
 
-    public GraphQueryController(GraphQueryService graphQueryService) {
-        this.graphQueryService = graphQueryService;
+    /**
+     * Returns the vertices for a graph.
+     * <p>
+     * The intended response is a paged dictionary-style view of vertex
+     * identifiers and their display labels. The current method returns an empty
+     * stub payload until the controller is connected to the graph traversal
+     * service.
+     *
+     * @param graphId logical graph identifier supplied in the URL
+     * @return placeholder vertex response
+     */
+    @GetMapping("/api/v1/graphs/{graphId}/vertices")
+    public Map<String, Object> getVertices(
+            @PathVariable String graphId) {
+        return Collections.emptyMap();
     }
 
-    @GetMapping("/vertices")
-    public Map<String, String> getVertices() {
-        return graphQueryService.getVertices();
+    /**
+     * Returns the edges for a graph.
+     * <p>
+     * The intended response is a paged list of graph edges, usually including
+     * the source vertex id, target vertex id, and relation information. The
+     * current method returns an empty stub payload until encoded-store traversal
+     * is wired into the REST layer.
+     *
+     * @param graphId logical graph identifier supplied in the URL
+     * @return placeholder edge response
+     */
+    @GetMapping("/api/v1/graphs/{graphId}/edges")
+    public Map<String, Object> getEdges(
+            @PathVariable String graphId) {
+        return Collections.emptyMap();
     }
 
-    @GetMapping("/edges")
-    public List<String> getEdges() {
-        return graphQueryService.getEdges();
+    /**
+     * Returns the vertex dictionary used by UI renderers.
+     * <p>
+     * The dictionary is the stable mapping from vertex id to vertex label. The
+     * UI can use this response to hydrate graph payloads that carry compact
+     * vertex identifiers, without requiring each edge response to repeat display
+     * labels. The current method returns an empty stub map until the controller
+     * is connected to the graph dictionary traversal.
+     * <p>
+     * Intended response shape:
+     * <pre>
+     * {
+     *   "AUTH": "Authentication Service",
+     *   "USER_DB": "User Database"
+     * }
+     * </pre>
+     *
+     * @param graphId logical graph identifier supplied in the URL
+     * @return vertex id to vertex label mapping
+     */
+    @GetMapping("/api/v1/graphs/{graphId}/dictionary")
+    public Map<String, String> getDictionary(@PathVariable String graphId) {
+        return graphIngestionEngine.getVertexDictionary();
+    }
+
+    /**
+     * Returns the schema metadata for a graph.
+     * <p>
+     * The intended response should describe how raw columns are mapped into the
+     * graph model, including from-node columns, to-node columns, relation
+     * columns, and any supported attributes. The current method returns an empty
+     * stub payload.
+     *
+     * @param graphId logical graph identifier supplied in the URL
+     * @return placeholder schema response
+     */
+    @GetMapping("/api/v1/graphs/{graphId}/schema")
+    public Map<String, Object> getSchema(@PathVariable String graphId) {
+        return Collections.emptyMap();
+    }
+
+    /**
+     * Returns aggregate statistics for a graph.
+     * <p>
+     * The intended response should include lightweight counts such as vertex
+     * count, edge count, relation count, and eventually ingestion or storage
+     * metrics. The current method returns an empty stub payload.
+     *
+     * @param graphId logical graph identifier supplied in the URL
+     * @return placeholder statistics response
+     */
+    @GetMapping("/api/v1/graphs/{graphId}/stats")
+    public Map<String, Object> getStats(@PathVariable String graphId) {
+        return Collections.emptyMap();
     }
 }

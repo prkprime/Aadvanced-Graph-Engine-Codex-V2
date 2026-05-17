@@ -7,6 +7,9 @@ import com.self.help.legacy.RawDataStore;
 import com.self.help.storage.BiDirectionalDictionary;
 import com.self.help.storage.InvertedIndexColumn;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import static com.self.help.util.MappingSpecUtil.validateSpec;
 
 /**
@@ -83,5 +86,51 @@ public class GraphIngestionEngine {
      */
     public synchronized int getIngestedRowCount() {
         return numericColumnarStores[0].getRowCount();
+    }
+
+    /**
+     * Builds a vertex dictionary from the encoded graph stores.
+     * The returned map is keyed by vertex id and contains the matching vertex
+     * label as the value. The traversal reads the row-aligned integer stores and
+     * decodes values through the graph dictionaries instead of scanning the raw
+     * input data store.
+     *
+     * @return vertex id to vertex label mapping in first-seen order
+     */
+    public synchronized Map<String, String> getVertexDictionary() {
+        Map<String, String> dictionary = new LinkedHashMap<>();
+        int nodeColumnCount = 2 + graphEngineContext.getAttributesContext().length;
+        int fromNodeIdStoreIndex = 0;
+        int fromNodeLabelStoreIndex = 1;
+        int toNodeIdStoreIndex = nodeColumnCount;
+        int toNodeLabelStoreIndex = nodeColumnCount + 1;
+
+        IntegerColumnarStore fromNodeIdStore = numericColumnarStores[fromNodeIdStoreIndex];
+        IntegerColumnarStore fromNodeLabelStore = numericColumnarStores[fromNodeLabelStoreIndex];
+        IntegerColumnarStore toNodeIdStore = numericColumnarStores[toNodeIdStoreIndex];
+        IntegerColumnarStore toNodeLabelStore = numericColumnarStores[toNodeLabelStoreIndex];
+
+        BiDirectionalDictionary nodeIdDictionary = biDirectionalDictionaries[fromNodeIdStoreIndex];
+        BiDirectionalDictionary nodeLabelDictionary = biDirectionalDictionaries[fromNodeLabelStoreIndex];
+
+        int rowCount = getIngestedRowCount();
+        for (int rowId = 0; rowId < rowCount; rowId++) {
+            addDecodedVertex(dictionary, fromNodeIdStore, fromNodeLabelStore, nodeIdDictionary, nodeLabelDictionary, rowId);
+            addDecodedVertex(dictionary, toNodeIdStore, toNodeLabelStore, nodeIdDictionary, nodeLabelDictionary, rowId);
+        }
+
+        return dictionary;
+    }
+
+    private void addDecodedVertex(
+            Map<String, String> dictionary,
+            IntegerColumnarStore nodeIdStore,
+            IntegerColumnarStore nodeLabelStore,
+            BiDirectionalDictionary nodeIdDictionary,
+            BiDirectionalDictionary nodeLabelDictionary,
+            int rowId) {
+        String nodeId = nodeIdDictionary.getValue(nodeIdStore.getInt(rowId));
+        String nodeLabel = nodeLabelDictionary.getValue(nodeLabelStore.getInt(rowId));
+        dictionary.putIfAbsent(nodeId, nodeLabel);
     }
 }
