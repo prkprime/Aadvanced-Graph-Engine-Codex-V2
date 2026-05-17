@@ -75,4 +75,13 @@ public class GraphIngestionEngine {
         }
         ingest(rowId);
     }
+
+    /**
+     * Returns how many rows have been ingested into the graph indexes.
+     *
+     * @return ingested row count
+     */
+    public synchronized int getIngestedRowCount() {
+        return numericColumnarStores[0].getRowCount();
+    }
 }
