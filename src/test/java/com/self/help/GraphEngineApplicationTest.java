@@ -1,5 +1,7 @@
 package com.self.help;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.self.help.input.GraphMappingSchema;
 import com.self.help.legacy.RawDataStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +30,9 @@ class GraphEngineApplicationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     void contextLoads() {
@@ -79,36 +84,30 @@ class GraphEngineApplicationTest {
                 .andExpect(jsonPath("$['ANALYTICS']").value("Analytics Pipeline"));
     }
 
+    private GraphMappingSchema buildTestSchema() {
+        return GraphMappingSchema.builder()
+                .idPair("fromId", "toId")
+                .labelPair("fromLabel", "toLabel")
+                .addAttribute("type", "fromType", "toType")
+                .addRelation("relation")
+                .addRelation("priority")
+                .build();
+    }
+
     @Test
     void exposesDictionaryLookupEndpoint() throws Exception {
+        GraphMappingSchema schema = buildTestSchema();
+        String schemaJson = objectMapper.writeValueAsString(schema);
+        String encodedSchema = java.net.URLEncoder.encode(schemaJson, java.nio.charset.StandardCharsets.UTF_8);
+
         String requestJson = """
                 {
-                  "schema": {
-                    "idPair": {
-                      "fromColumnName": "fromId",
-                      "toColumnName": "toId"
-                    },
-                    "labelPair": {
-                      "fromColumnName": "fromLabel",
-                      "toColumnName": "toLabel"
-                    },
-                    "attributePairs": [
-                      {
-                        "attributeName": "type",
-                        "columnPair": {
-                          "fromColumnName": "fromType",
-                          "toColumnName": "toType"
-                        }
-                      }
-                    ],
-                    "relationColumns": ["relation", "priority"]
-                  },
                   "targetType": "ATTRIBUTE",
                   "name": "type"
                 }
                 """;
 
-        mockMvc.perform(post("/api/v1/graphs/default/dictionary/lookup")
+        mockMvc.perform(post("/api/v1/graphs/default/dictionary/lookup/" + encodedSchema)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson))
                 .andExpect(status().isOk())
@@ -118,33 +117,17 @@ class GraphEngineApplicationTest {
 
     @Test
     void exposesDictionaryLookupEndpointForId() throws Exception {
+        GraphMappingSchema schema = buildTestSchema();
+        String schemaJson = objectMapper.writeValueAsString(schema);
+        String encodedSchema = java.net.URLEncoder.encode(schemaJson, java.nio.charset.StandardCharsets.UTF_8);
+
         String requestJson = """
                 {
-                  "schema": {
-                    "idPair": {
-                      "fromColumnName": "fromId",
-                      "toColumnName": "toId"
-                    },
-                    "labelPair": {
-                      "fromColumnName": "fromLabel",
-                      "toColumnName": "toLabel"
-                    },
-                    "attributePairs": [
-                      {
-                        "attributeName": "type",
-                        "columnPair": {
-                          "fromColumnName": "fromType",
-                          "toColumnName": "toType"
-                        }
-                      }
-                    ],
-                    "relationColumns": ["relation", "priority"]
-                  },
                   "targetType": "ID"
                 }
                 """;
 
-        mockMvc.perform(post("/api/v1/graphs/default/dictionary/lookup")
+        mockMvc.perform(post("/api/v1/graphs/default/dictionary/lookup/" + encodedSchema)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestJson))
                 .andExpect(status().isOk())

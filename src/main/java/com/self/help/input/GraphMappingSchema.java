@@ -16,7 +16,7 @@ public record GraphMappingSchema(
         @Nullable PairSpec labelPair,
         @NotNull List<AttributePair> attributePairs,
         @NotNull List<String> relationColumns
-) {
+) implements java.io.Serializable {
     public GraphMappingSchema {
         Objects.requireNonNull(idPair, "idPair");
         attributePairs = attributePairs == null ? List.of() : List.copyOf(attributePairs);

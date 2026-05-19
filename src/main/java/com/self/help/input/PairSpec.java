@@ -7,5 +7,5 @@ import org.jetbrains.annotations.NotNull;
  * @param fromColumnName
  * @param toColumnName
  */
-public record PairSpec(@NotNull String fromColumnName, @NotNull String toColumnName) {
+public record PairSpec(@NotNull String fromColumnName, @NotNull String toColumnName) implements java.io.Serializable {
 }

@@ -7,7 +7,7 @@ package com.self.help.output;
  * independent of edge or relation metrics. They are intended for lightweight
  * API responses such as {@code /api/v1/graphs/{graphId}/stats}.
  */
-public record GraphNodeStats(int outgoingEdgeCount, int incomingEdgeCount) {
+public record GraphNodeStats(int outgoingEdgeCount, int incomingEdgeCount) implements java.io.Serializable {
     /**
      * Returns the total edge count
      * @return

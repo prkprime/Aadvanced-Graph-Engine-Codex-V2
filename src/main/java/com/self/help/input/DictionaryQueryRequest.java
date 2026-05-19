@@ -8,12 +8,10 @@ import java.util.Objects;
  * Request payload for dictionary lookup.
  */
 public record DictionaryQueryRequest(
-        @NotNull GraphMappingSchema schema,
         @NotNull MappingTargetType targetType,
         @Nullable String name
-) {
+) implements java.io.Serializable {
     public DictionaryQueryRequest {
-        Objects.requireNonNull(schema, "schema");
         Objects.requireNonNull(targetType, "targetType");
     }
 }

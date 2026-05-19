@@ -11,7 +11,7 @@ import java.util.Objects;
  * and relation columns that belong to the edge between those node sides.
  */
 public record MappingSpec(@NotNull NodeSpec fromNodeSpec, @NotNull NodeSpec toNodeSpec,
-                          @NotNull List<String> relations) {
+                          @NotNull List<String> relations) implements java.io.Serializable {
     /**
      * Creates a graph mapping with an immutable relation-column list.
      *

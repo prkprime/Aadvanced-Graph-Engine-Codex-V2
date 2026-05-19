@@ -11,7 +11,7 @@ import java.util.Objects;
  * A node has an id column, a label column, and zero or more attribute columns.
  * If no label column is supplied, the id column also acts as the label column.
  */
-public record NodeSpec(@NotNull String idColumnName, @Nullable String labelColumnName, @Nullable List<String> attributes) {
+public record NodeSpec(@NotNull String idColumnName, @Nullable String labelColumnName, @Nullable List<String> attributes) implements java.io.Serializable {
     /**
      * Creates a node mapping from raw source columns.
      * When no label column is supplied, the id column is also used as the label

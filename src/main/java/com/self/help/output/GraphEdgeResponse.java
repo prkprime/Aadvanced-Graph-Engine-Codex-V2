@@ -18,8 +18,7 @@ import java.util.Objects;
 public record GraphEdgeResponse(
         @Nullable String fromVertexId,
         @Nullable String toVertexId,
-        @NotNull List<@Nullable String> relations) {
-
+        @NotNull List<@Nullable String> relations) implements java.io.Serializable {
     public GraphEdgeResponse {
         Objects.requireNonNull(relations, "relations");
         relations = Collections.unmodifiableList(new ArrayList<>(relations));

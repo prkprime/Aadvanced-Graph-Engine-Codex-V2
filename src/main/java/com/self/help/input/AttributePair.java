@@ -6,7 +6,7 @@ import java.util.Objects;
 /**
  * Binds a semantic attribute name to a source and target column pair.
  */
-public record AttributePair(@NotNull String attributeName, @NotNull PairSpec columnPair) {
+public record AttributePair(@NotNull String attributeName, @NotNull PairSpec columnPair) implements java.io.Serializable {
     public AttributePair {
         Objects.requireNonNull(attributeName, "attributeName");
         Objects.requireNonNull(columnPair, "columnPair");

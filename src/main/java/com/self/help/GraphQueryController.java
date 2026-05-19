@@ -119,12 +119,13 @@ public class GraphQueryController {
      * @param request payload containing the schema, target type, and target name
      * @return map from dictionary integer id to original string value
      */
-    @PostMapping("/api/v1/graphs/{graphId}/dictionary/lookup")
+    @PostMapping("/api/v1/graphs/{graphId}/dictionary/lookup/{graphMappingSchema}")
     public Map<Integer, String> lookupDictionary(
+            @PathVariable GraphMappingSchema graphMappingSchema,
             @PathVariable String graphId,
             @RequestBody DictionaryQueryRequest request) {
         BiDirectionalDictionary dictionary = graphIngestionEngine.getDictionaryFor(
-                request.schema(),
+                graphMappingSchema,
                 request.targetType(),
                 request.name()
         );
