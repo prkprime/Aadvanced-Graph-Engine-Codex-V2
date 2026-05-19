@@ -8,15 +8,10 @@ package com.self.help.output;
  * API responses such as {@code /api/v1/graphs/{graphId}/stats}.
  */
 public record GraphNodeStats(int outgoingEdgeCount, int incomingEdgeCount) {
-
-    public int getOutgoingEdgeCount() {
-        return outgoingEdgeCount;
-    }
-
-    public int getIncomingEdgeCount() {
-        return incomingEdgeCount;
-    }
-
+    /**
+     * Returns the total edge count
+     * @return
+     */
     public int getTotalEdgeCount() {
         return outgoingEdgeCount + incomingEdgeCount;
     }

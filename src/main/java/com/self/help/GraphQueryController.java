@@ -1,9 +1,14 @@
 package com.self.help;
 
+import com.self.help.input.DictionaryQueryRequest;
+import com.self.help.input.GraphMappingSchema;
 import com.self.help.output.GraphEdgeResponse;
+import com.self.help.storage.BiDirectionalDictionary;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Collections;
@@ -72,7 +77,7 @@ public class GraphQueryController {
      * @return vertex id to vertex label mapping
      */
     @GetMapping("/api/v1/graphs/{graphId}/dictionary")
-    public Map<String, String> getDictionary(@PathVariable String graphId) {
+    public Map<String, String> getVertexIdToLabelMap(@PathVariable String graphId) {
         return graphIngestionEngine.getVertexDictionary();
     }
 
@@ -105,5 +110,24 @@ public class GraphQueryController {
     @GetMapping("/api/v1/graphs/{graphId}/stats")
     public Map<String, Object> getStats(@PathVariable String graphId) {
         return Collections.emptyMap();
+    }
+
+    /**
+     * Looks up and returns the dictionary mapping for the specified schema and target column.
+     *
+     * @param graphId logical graph identifier supplied in the URL
+     * @param request payload containing the schema, target type, and target name
+     * @return map from dictionary integer id to original string value
+     */
+    @PostMapping("/api/v1/graphs/{graphId}/dictionary/lookup")
+    public Map<Integer, String> lookupDictionary(
+            @PathVariable String graphId,
+            @RequestBody DictionaryQueryRequest request) {
+        BiDirectionalDictionary dictionary = graphIngestionEngine.getDictionaryFor(
+                request.schema(),
+                request.targetType(),
+                request.name()
+        );
+        return dictionary.asMap();
     }
 }

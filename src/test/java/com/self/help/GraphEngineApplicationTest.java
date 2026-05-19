@@ -12,6 +12,7 @@ import static org.hamcrest.Matchers.aMapWithSize;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -76,5 +77,78 @@ class GraphEngineApplicationTest {
                 .andExpect(jsonPath("$['AUTH']").value("Authentication Service"))
                 .andExpect(jsonPath("$['USER_DB']").value("User Database"))
                 .andExpect(jsonPath("$['ANALYTICS']").value("Analytics Pipeline"));
+    }
+
+    @Test
+    void exposesDictionaryLookupEndpoint() throws Exception {
+        String requestJson = """
+                {
+                  "schema": {
+                    "idPair": {
+                      "fromColumnName": "fromId",
+                      "toColumnName": "toId"
+                    },
+                    "labelPair": {
+                      "fromColumnName": "fromLabel",
+                      "toColumnName": "toLabel"
+                    },
+                    "attributePairs": [
+                      {
+                        "attributeName": "type",
+                        "columnPair": {
+                          "fromColumnName": "fromType",
+                          "toColumnName": "toType"
+                        }
+                      }
+                    ],
+                    "relationColumns": ["relation", "priority"]
+                  },
+                  "targetType": "ATTRIBUTE",
+                  "name": "type"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/graphs/default/dictionary/lookup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.*").value(hasSize(6)));
+    }
+
+    @Test
+    void exposesDictionaryLookupEndpointForId() throws Exception {
+        String requestJson = """
+                {
+                  "schema": {
+                    "idPair": {
+                      "fromColumnName": "fromId",
+                      "toColumnName": "toId"
+                    },
+                    "labelPair": {
+                      "fromColumnName": "fromLabel",
+                      "toColumnName": "toLabel"
+                    },
+                    "attributePairs": [
+                      {
+                        "attributeName": "type",
+                        "columnPair": {
+                          "fromColumnName": "fromType",
+                          "toColumnName": "toType"
+                        }
+                      }
+                    ],
+                    "relationColumns": ["relation", "priority"]
+                  },
+                  "targetType": "ID"
+                }
+                """;
+
+        mockMvc.perform(post("/api/v1/graphs/default/dictionary/lookup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.*").value(hasSize(16)));
     }
 }

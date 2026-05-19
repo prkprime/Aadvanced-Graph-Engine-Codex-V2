@@ -1,12 +1,17 @@
 package com.self.help;
 
 import com.self.help.context.GraphEngineContext;
+import com.self.help.input.GraphMappingSchema;
 import com.self.help.input.MappingSpec;
+import com.self.help.input.MappingTargetType;
 import com.self.help.legacy.IntegerColumnarStore;
 import com.self.help.legacy.RawDataStore;
 import com.self.help.output.GraphEdgeResponse;
 import com.self.help.storage.BiDirectionalDictionary;
 import com.self.help.storage.InvertedIndexColumn;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.roaringbitmap.RoaringBitmap;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -176,5 +181,59 @@ public class GraphIngestionEngine {
         String nodeId = nodeIdDictionary.getValue(nodeIdStore.getInt(rowId));
         String nodeLabel = nodeLabelDictionary.getValue(nodeLabelStore.getInt(rowId));
         dictionary.putIfAbsent(nodeId, nodeLabel);
+    }
+
+    /**
+     * Resolves and returns the BiDirectionalDictionary for a given mapping target type and name
+     * using the provided schema.
+     *
+     * @param schema     the graph mapping schema used to configure the engine
+     * @param targetType the target type (ID, LABEL, ATTRIBUTE, or RELATION)
+     * @param name       the attribute or relation column name (ignored for ID and LABEL)
+     * @return the associated BiDirectionalDictionary
+     * @throws IllegalArgumentException if the requested target is invalid or not found
+     */
+    @NotNull
+    public BiDirectionalDictionary getDictionaryFor(
+            @NotNull GraphMappingSchema schema,
+            @NotNull MappingTargetType targetType,
+            @Nullable String name) {
+        
+        return switch (targetType) {
+            case ID -> graphEngineContext.getIdContext().getBiDirectionalDictionary();
+            case LABEL -> graphEngineContext.getLabelContext().getBiDirectionalDictionary();
+            case ATTRIBUTE -> {
+                if (name == null || name.isBlank()) {
+                    throw new IllegalArgumentException("Attribute name is required to lookup ATTRIBUTE dictionary");
+                }
+                int attrIndex = -1;
+                for (int i = 0; i < schema.attributePairs().size(); i++) {
+                    if (schema.attributePairs().get(i).attributeName().equalsIgnoreCase(name)) {
+                        attrIndex = i;
+                        break;
+                    }
+                }
+                if (attrIndex == -1) {
+                    throw new IllegalArgumentException("Attribute '" + name + "' not found in mapping schema");
+                }
+                yield graphEngineContext.getAttributesContext()[attrIndex].getBiDirectionalDictionary();
+            }
+            case RELATION -> {
+                if (name == null || name.isBlank()) {
+                    throw new IllegalArgumentException("Relation column name is required to lookup RELATION dictionary");
+                }
+                int relIndex = -1;
+                for (int i = 0; i < schema.relationColumns().size(); i++) {
+                    if (schema.relationColumns().get(i).equalsIgnoreCase(name)) {
+                        relIndex = i;
+                        break;
+                    }
+                }
+                if (relIndex == -1) {
+                    throw new IllegalArgumentException("Relation column '" + name + "' not found in mapping schema");
+                }
+                yield graphEngineContext.getRelationContext()[relIndex].getBiDirectionalDictionary();
+            }
+        };
     }
 }

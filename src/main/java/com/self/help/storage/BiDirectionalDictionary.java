@@ -58,4 +58,17 @@ public class BiDirectionalDictionary {
     public synchronized int getIdIfExists(String value) {
         return valueToId.getOrDefault(value, -1);
     }
+
+    /**
+     * Converts this dictionary to an immutable map representation of id to value.
+     *
+     * @return map from dictionary id to original string value
+     */
+    public synchronized Map<Integer, String> asMap() {
+        Map<Integer, String> map = new HashMap<>();
+        for (int id = 0; id < idToValue.size(); id++) {
+            map.put(id, idToValue.get(id));
+        }
+        return Map.copyOf(map);
+    }
 }
