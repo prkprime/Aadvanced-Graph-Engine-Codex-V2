@@ -27,26 +27,22 @@ public class GraphQueryController {
     /**
      * Returns the vertices for a graph.
      * <p>
-     * The intended response is a paged dictionary-style view of vertex
-     * identifiers and their display labels. The current method returns an empty
-     * stub payload until the controller is connected to the graph traversal
-     * service.
+     * The response is a dictionary-style view of vertex identifiers and their
+     * display labels.
      *
      * @param graphId logical graph identifier supplied in the URL
-     * @return placeholder vertex response
+     * @return vertex id to vertex label mapping
      */
     @GetMapping("/api/v1/graphs/{graphId}/vertices")
-    public Map<String, Object> getVertices(@PathVariable String graphId) {
-        return Collections.emptyMap();
+    public Map<String, String> getVertices(@PathVariable String graphId) {
+        return graphIngestionEngine.getVertexDictionary();
     }
 
     /**
      * Returns the edges for a graph.
      * <p>
-     * The intended response is a paged list of graph edges, usually including
-     * the source vertex id, target vertex id, and relation information. The
-     * current method returns an empty stub payload until encoded-store traversal
-     * is wired into the REST layer.
+     * The response is a row-wise list of graph edges, including the source
+     * vertex id, target vertex id, and relation values.
      *
      * @param graphId logical graph identifier supplied in the URL
      * @return row-wise edge response
@@ -62,8 +58,7 @@ public class GraphQueryController {
      * The dictionary is the stable mapping from vertex id to vertex label. The
      * UI can use this response to hydrate graph payloads that carry compact
      * vertex identifiers, without requiring each edge response to repeat display
-     * labels. The current method returns an empty stub map until the controller
-     * is connected to the graph dictionary traversal.
+     * labels.
      * <p>
      * Intended response shape:
      * <pre>

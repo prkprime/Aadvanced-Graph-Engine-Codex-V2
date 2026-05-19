@@ -42,7 +42,7 @@ class GraphEngineApplicationTest {
 
     @Test
     void exposesVerticesEndpoint() throws Exception {
-        mockMvc.perform(get("/graph/vertices"))
+        mockMvc.perform(get("/api/v1/graphs/default/vertices"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$", aMapWithSize(16)))
@@ -53,12 +53,18 @@ class GraphEngineApplicationTest {
 
     @Test
     void exposesEdgesEndpoint() throws Exception {
-        mockMvc.perform(get("/graph/edges"))
+        mockMvc.perform(get("/api/v1/graphs/default/edges"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$", hasSize(StartupGraphDataConfiguration.startupRowCount())))
-                .andExpect(jsonPath("$[0]").value("AUTH -[reads]-> USER_DB"))
-                .andExpect(jsonPath("$[14]").value("API -[streams]-> ANALYTICS"));
+                .andExpect(jsonPath("$[0].fromVertexId").value("AUTH"))
+                .andExpect(jsonPath("$[0].toVertexId").value("USER_DB"))
+                .andExpect(jsonPath("$[0].relations[0]").value("reads"))
+                .andExpect(jsonPath("$[0].relations[1]").value("high"))
+                .andExpect(jsonPath("$[14].fromVertexId").value("API"))
+                .andExpect(jsonPath("$[14].toVertexId").value("ANALYTICS"))
+                .andExpect(jsonPath("$[14].relations[0]").value("streams"))
+                .andExpect(jsonPath("$[14].relations[1]").value("medium"));
     }
 
     @Test
