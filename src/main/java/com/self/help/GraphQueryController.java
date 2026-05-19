@@ -1,11 +1,13 @@
 package com.self.help;
 
+import com.self.help.output.GraphEdgeResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -34,8 +36,7 @@ public class GraphQueryController {
      * @return placeholder vertex response
      */
     @GetMapping("/api/v1/graphs/{graphId}/vertices")
-    public Map<String, Object> getVertices(
-            @PathVariable String graphId) {
+    public Map<String, Object> getVertices(@PathVariable String graphId) {
         return Collections.emptyMap();
     }
 
@@ -48,12 +49,11 @@ public class GraphQueryController {
      * is wired into the REST layer.
      *
      * @param graphId logical graph identifier supplied in the URL
-     * @return placeholder edge response
+     * @return row-wise edge response
      */
     @GetMapping("/api/v1/graphs/{graphId}/edges")
-    public Map<String, Object> getEdges(
-            @PathVariable String graphId) {
-        return Collections.emptyMap();
+    public List<GraphEdgeResponse> getEdges(@PathVariable String graphId) {
+        return graphIngestionEngine.getEdges();
     }
 
     /**

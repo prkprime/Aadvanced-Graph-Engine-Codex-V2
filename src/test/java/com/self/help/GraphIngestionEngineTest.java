@@ -3,6 +3,7 @@ package com.self.help;
 import com.self.help.input.MappingSpec;
 import com.self.help.input.NodeSpec;
 import com.self.help.legacy.RawDataStore;
+import com.self.help.output.GraphEdgeResponse;
 import com.self.help.storage.BiDirectionalDictionary;
 import com.self.help.storage.InvertedIndexColumn;
 import com.self.help.util.MappingSpecUtil;
@@ -52,6 +53,30 @@ public class GraphIngestionEngineTest {
         GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
 
         assertThrows(IllegalArgumentException.class, () -> engine.ingest(0, otherStore));
+    }
+
+    @Test
+    public void returnsRowWiseEdgesFromEncodedStores() {
+        RawDataStore store = new RawDataStore(List.of("fromCity", "toCity", "medium", "priority"));
+        store.ingestRow(new String[]{"Mumbai", "Pune", "road", "high"});
+        store.ingestRow(new String[]{"Pune", "Solapur", "rail", null});
+
+        MappingSpec spec = new MappingSpec(
+                new NodeSpec("fromCity", null, null),
+                new NodeSpec("toCity", null, null),
+                List.of("medium", "priority"));
+        GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
+        engine.ingest(0);
+        engine.ingest(1);
+
+        List<GraphEdgeResponse> edges = engine.getEdges();
+
+        assertEquals(2, edges.size());
+        assertEquals(new GraphEdgeResponse("Mumbai", "Pune", List.of("road", "high")), edges.get(0));
+        assertEquals("Pune", edges.get(1).fromVertexId());
+        assertEquals("Solapur", edges.get(1).toVertexId());
+        assertEquals("rail", edges.get(1).relations().get(0));
+        assertEquals(null, edges.get(1).relations().get(1));
     }
 
     @Test

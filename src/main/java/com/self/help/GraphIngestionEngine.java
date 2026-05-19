@@ -4,10 +4,13 @@ import com.self.help.context.GraphEngineContext;
 import com.self.help.input.MappingSpec;
 import com.self.help.legacy.IntegerColumnarStore;
 import com.self.help.legacy.RawDataStore;
+import com.self.help.output.GraphEdgeResponse;
 import com.self.help.storage.BiDirectionalDictionary;
 import com.self.help.storage.InvertedIndexColumn;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static com.self.help.util.MappingSpecUtil.validateSpec;
@@ -120,6 +123,47 @@ public class GraphIngestionEngine {
         }
 
         return dictionary;
+    }
+
+    /**
+     * Builds row-wise edge responses from the encoded graph stores.
+     * The returned list preserves ingestion order. Each edge contains decoded
+     * from/to vertex ids and relation values in mapping-spec order.
+     *
+     * @return row-wise graph edges in ingestion order
+     */
+    public synchronized List<GraphEdgeResponse> getEdges() {
+        int rowCount = getIngestedRowCount();
+        List<GraphEdgeResponse> edges = new ArrayList<>(rowCount);
+        int nodeColumnCount = 2 + graphEngineContext.getAttributesContext().length;
+        int fromNodeIdStoreIndex = 0;
+        int toNodeIdStoreIndex = nodeColumnCount;
+        int relationStartStoreIndex = nodeColumnCount * 2;
+
+        IntegerColumnarStore fromNodeIdStore = numericColumnarStores[fromNodeIdStoreIndex];
+        IntegerColumnarStore toNodeIdStore = numericColumnarStores[toNodeIdStoreIndex];
+        BiDirectionalDictionary nodeIdDictionary = biDirectionalDictionaries[fromNodeIdStoreIndex];
+
+        for (int rowId = 0; rowId < rowCount; rowId++) {
+            String fromVertexId = nodeIdDictionary.getValue(fromNodeIdStore.getInt(rowId));
+            String toVertexId = nodeIdDictionary.getValue(toNodeIdStore.getInt(rowId));
+            edges.add(new GraphEdgeResponse(fromVertexId, toVertexId, decodeRelationValues(rowId, relationStartStoreIndex)));
+        }
+
+        return List.copyOf(edges);
+    }
+
+    private List<String> decodeRelationValues(int rowId, int relationStartStoreIndex) {
+        int relationCount = graphEngineContext.getRelationContext().length;
+        List<String> relations = new ArrayList<>(relationCount);
+
+        for (int relationIndex = 0; relationIndex < relationCount; relationIndex++) {
+            int storeIndex = relationStartStoreIndex + relationIndex;
+            int encodedValue = numericColumnarStores[storeIndex].getInt(rowId);
+            relations.add(biDirectionalDictionaries[storeIndex].getValue(encodedValue));
+        }
+
+        return relations;
     }
 
     private void addDecodedVertex(
