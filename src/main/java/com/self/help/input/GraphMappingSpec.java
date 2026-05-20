@@ -19,10 +19,10 @@ public record GraphMappingSpec(
 ) implements java.io.Serializable {
     public GraphMappingSpec {
         Objects.requireNonNull(idPair, "idPair");
-        nodeAttributes = nodeAttributes == null ? List.of() : nodeAttributes.stream()
+        nodeAttributes = nodeAttributes.stream()
                 .map(GraphMappingSpec::requireNamedNodeAttribute)
                 .toList();
-        relations = relations == null ? List.of() : List.copyOf(relations);
+        relations = List.copyOf(relations);
     }
 
     /**
@@ -169,7 +169,7 @@ public record GraphMappingSpec(
     private static NodePropertyMappingSpec requireNamedNodeAttribute(NodePropertyMappingSpec nodeAttribute) {
         Objects.requireNonNull(nodeAttribute, "nodeAttribute");
         String attributeName = nodeAttribute.attributeName();
-        if (attributeName == null || attributeName.isBlank()) {
+        if (attributeName.isBlank()) {
             throw new IllegalArgumentException("nodeAttribute.attributeName must be specified");
         }
         return nodeAttribute;

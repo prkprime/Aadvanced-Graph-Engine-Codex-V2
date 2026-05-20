@@ -14,7 +14,7 @@ import org.jetbrains.annotations.NotNull;
  * keeping side-specific encoded columns and row indexes.
  */
 @Getter(onMethod_ = {@NotNull})
-public class NodeContext {
+public class NodePropertyPairContext {
     /**
      * Shared dictionary used to encode node values from both edge sides into
      * dense integer ids.
@@ -64,7 +64,7 @@ public class NodeContext {
      * @param fromColumn source column containing the from-node values
      * @param toColumn   source column containing the to-node values
      */
-    public NodeContext(@NotNull RawDataStore dataCube, @NotNull String fromColumn, @NotNull String toColumn) {
+    public NodePropertyPairContext(@NotNull RawDataStore dataCube, @NotNull String fromColumn, @NotNull String toColumn) {
         this.biDirectionalDictionary = new BiDirectionalDictionary();
         this.fromInvertedIndexColumn = new InvertedIndexColumn();
         this.toInvertedIndexColumn = new InvertedIndexColumn();

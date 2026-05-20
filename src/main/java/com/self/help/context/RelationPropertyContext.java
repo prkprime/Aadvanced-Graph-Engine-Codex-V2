@@ -14,7 +14,7 @@ import org.jetbrains.annotations.NotNull;
  * can work with compact integer ids instead of repeatedly comparing raw strings.
  */
 @Getter(onMethod_ = {@NotNull})
-public class RelationContext {
+public class RelationPropertyContext {
     /**
      * Dictionary used to encode relation values to dense integer ids and decode
      * them back to their original strings when results are hydrated.
@@ -46,7 +46,7 @@ public class RelationContext {
      * @param dataCube raw source store that owns the mapped relation column
      * @param relationName source column containing relation values
      */
-    public RelationContext(@NotNull RawDataStore dataCube, @NotNull String relationName) {
+    public RelationPropertyContext(@NotNull RawDataStore dataCube, @NotNull String relationName) {
         this.biDirectionalDictionary = new BiDirectionalDictionary();
         this.indexFromDataCube = dataCube.getColumnIndex(relationName);
         this.invertedIndexColumn = new InvertedIndexColumn();

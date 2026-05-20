@@ -1,27 +1,27 @@
 package com.self.help.context;
 
-import com.self.help.input.MappingSpec;
-import com.self.help.input.NodeSpec;
+import com.self.help.input.GraphMappingSpec;
+import com.self.help.input.NodePropertyMappingSpec;
+import com.self.help.input.RelationPropertyMappingSpec;
 import com.self.help.legacy.IntegerColumnarStore;
 import com.self.help.legacy.RawDataStore;
 import com.self.help.storage.BiDirectionalDictionary;
 import com.self.help.storage.InvertedIndexColumn;
 import lombok.AccessLevel;
-import org.roaringbitmap.RoaringBitmap;
 import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
+import org.roaringbitmap.RoaringBitmap;
 
 import java.util.List;
 
 /**
  * Owns the per-column contexts used by the graph ingestion engine.
- * The context groups node id, node label, node attributes, and relation columns,
- * then exposes flattened views of their dictionaries, inverted indexes, integer
- * column stores, and source-column mappings in the same order expected by
- * engine-level arrays.
+ * The context keeps the logical graph mapping readable by grouping id, label,
+ * attribute, relation, and tombstone bitmap state under explicit fields.
  */
 @Getter(onMethod_ = {@NotNull})
 public class GraphEngineContext {
+
     /**
      * Raw source store used to resolve source column names to data-cube indexes.
      */
@@ -29,331 +29,255 @@ public class GraphEngineContext {
     private final RawDataStore dataCube;
 
     /**
-     * Mapping specification used to size flattened context arrays.
+     * Context for the mapped node id pair.
      */
-    private final MappingSpec spec;
+    private final NodePropertyPairContext idContext;
 
     /**
-     * Shared context for from-node and to-node id columns.
+     * Context for the mapped node label pair. When no explicit label pair is
+     * configured, this maps the id pair so labels fall back to ids.
      */
-    private final NodeContext idContext;
+    private final NodePropertyPairContext labelContext;
 
     /**
-     * Shared context for from-node and to-node label columns.
+     * Contexts for mapped node attributes, in mapping-spec order.
      */
-    private final NodeContext labelContext;
+    private final NodePropertyPairContext[] attributesContext;
 
     /**
-     * Contexts for paired from-node and to-node attribute columns, ordered by
-     * their position in the mapping specification.
+     * Contexts for mapped relation columns, in mapping-spec order.
      */
-    private final NodeContext[] attributesContext;
+    private final RelationPropertyContext[] relations;
 
     /**
-     * Contexts for relation columns, ordered by their position in the mapping
-     * specification.
-     */
-    private final RelationContext[] relationContext;
-
-    /**
-     * Bitmap tracking row indices where the FROM-node ID was null (tombstoned).
+     * Bitmap tracking ingested row indices where the FROM-node id was null.
      */
     private final RoaringBitmap fromDeleted = new RoaringBitmap();
 
     /**
-     * Bitmap tracking row indices where the TO-node ID was null (tombstoned).
+     * Bitmap tracking ingested row indices where the TO-node id was null.
      */
     private final RoaringBitmap toDeleted = new RoaringBitmap();
 
+    /**
+     * Zero-based source column index for the FROM-node id.
+     */
     @Getter
     private final int fromIdColIndex;
 
+    /**
+     * Zero-based source column index for the TO-node id.
+     */
     @Getter
     private final int toIdColIndex;
 
-    @Getter
+    /**
+     * Target-column mask used when the FROM-node id is null.
+     */
     private final RoaringBitmap fromNullReadMask = new RoaringBitmap();
 
-    @Getter
+    /**
+     * Target-column mask used when the TO-node id is null.
+     */
     private final RoaringBitmap toNullReadMask = new RoaringBitmap();
 
-    /**
-     * Builds all node and relation contexts for the supplied graph mapping.
-     * Node id and label columns are represented as paired from/to contexts,
-     * attributes are paired by list position, and each relation column receives
-     * its own relation context.
-     *
-     * @param dataCube raw source store that owns the mapped columns
-     * @param spec     graph mapping that identifies node and relation columns
-     */
-    public GraphEngineContext(@NotNull RawDataStore dataCube, @NotNull MappingSpec spec) {
+    public GraphEngineContext(@NotNull RawDataStore dataCube, @NotNull GraphMappingSpec schema) {
         this.dataCube = dataCube;
-        this.spec = spec;
-        NodeSpec fromNodeSpec = spec.getFromNodeSpec();
-        NodeSpec toNodeSpec = spec.getToNodeSpec();
 
-        this.idContext = new NodeContext(dataCube, fromNodeSpec.getIdColumnName(), toNodeSpec.getIdColumnName());
-        this.labelContext = new NodeContext(dataCube, fromNodeSpec.getLabelColumnName(), toNodeSpec.getLabelColumnName());
+        var idPair = schema.idPair();
+        var labelPair = schema.labelPair() != null ? schema.labelPair() : idPair;
 
-        this.fromIdColIndex = dataCube.getColumnIndex(fromNodeSpec.getIdColumnName());
-        this.toIdColIndex = dataCube.getColumnIndex(toNodeSpec.getIdColumnName());
+        this.idContext = new NodePropertyPairContext(dataCube, idPair.fromColumnName(), idPair.toColumnName());
+        this.labelContext = new NodePropertyPairContext(dataCube, labelPair.fromColumnName(), labelPair.toColumnName());
 
-        List<String> fromAttributes = fromNodeSpec.getNodeAttributeNames();
-        List<String> toAttributes = toNodeSpec.getNodeAttributeNames();
-        this.attributesContext = new NodeContext[fromAttributes.size()];
-        for (int index = 0; index < fromAttributes.size(); index++) {
-            this.attributesContext[index] = new NodeContext(dataCube, fromAttributes.get(index), toAttributes.get(index));
+        this.fromIdColIndex = idContext.getFromDataCubeIndex();
+        this.toIdColIndex = idContext.getToDataCubeIndex();
+
+        List<NodePropertyMappingSpec> nodeAttributes = schema.nodeAttributes();
+        this.attributesContext = new NodePropertyPairContext[nodeAttributes.size()];
+        for (int index = 0; index < nodeAttributes.size(); index++) {
+            NodePropertyMappingSpec attribute = nodeAttributes.get(index);
+            this.attributesContext[index] = new NodePropertyPairContext(
+                    dataCube,
+                    attribute.fromColumnName(),
+                    attribute.toColumnName());
         }
 
-        List<String> relationNames = spec.getRelationColumnNames();
-        this.relationContext = new RelationContext[relationNames.size()];
-        for (int index = 0; index < relationNames.size(); index++) {
-            this.relationContext[index] = new RelationContext(dataCube, relationNames.get(index));
+        List<RelationPropertyMappingSpec> relationSpecs = schema.relations();
+        this.relations = new RelationPropertyContext[relationSpecs.size()];
+        for (int index = 0; index < relationSpecs.size(); index++) {
+            this.relations[index] = new RelationPropertyContext(dataCube, relationSpecs.get(index).columnName());
         }
 
-        int totalCols = spec.getNumberOfTotalColumns();
-        int nodeColCount = 2 + fromAttributes.size();
-
-        for (int i = 0; i < totalCols; i++) {
-            // When FROM is null, read only TO node columns
-            if (i >= nodeColCount && i < 2 * nodeColCount) {
-                this.fromNullReadMask.add(i);
-            }
-            // When TO is null, read only FROM node columns
-            if (i < nodeColCount) {
-                this.toNullReadMask.add(i);
-            }
-        }
+        int nodeColumnCount = nodeColumnCount();
+        fromNullReadMask.add((long) nodeColumnCount, (long) nodeColumnCount * 2);
+        toNullReadMask.add(0L, (long) nodeColumnCount);
     }
 
     /**
-     * Flattens all dictionary references into the engine array order:
-     * from id, from label, from attributes, to id, to label, to attributes, and
-     * relation dictionaries.
+     * Flattens all dictionary references into engine array order:
+     * from-side columns, to-side columns, then relation columns.
      *
      * @return dictionary references in engine column order
      */
+    @NotNull
     public BiDirectionalDictionary[] flatMapBiDirectionalDictionaries() {
-        final BiDirectionalDictionary[] biDirectionalDictionaries = new BiDirectionalDictionary[spec.getNumberOfTotalColumns()];
-
+        BiDirectionalDictionary[] result = new BiDirectionalDictionary[totalColumnCount()];
         int index = 0;
-        index = copyNodeDictionaries(biDirectionalDictionaries, index);
-        index = copyNodeDictionaries(biDirectionalDictionaries, index);
-        copyRelationDictionaries(biDirectionalDictionaries, index);
-        return biDirectionalDictionaries;
+
+        index = copyNodeDictionaries(result, index);
+        index = copyNodeDictionaries(result, index);
+        copyRelationDictionaries(result, index);
+
+        return result;
     }
 
-    /**
-     * Copies one node-side group of dictionary references into the supplied
-     * output array.
-     *
-     * @param biDirectionalDictionaries output dictionary array
-     * @param index first position to write
-     * @return next writable position after the copied node dictionaries
-     */
-    private int copyNodeDictionaries(BiDirectionalDictionary[] biDirectionalDictionaries, int index) {
-        biDirectionalDictionaries[index++] = idContext.getBiDirectionalDictionary();
-        biDirectionalDictionaries[index++] = labelContext.getBiDirectionalDictionary();
-        for (NodeContext attributeContext : attributesContext) {
-            biDirectionalDictionaries[index++] = attributeContext.getBiDirectionalDictionary();
+    private int copyNodeDictionaries(BiDirectionalDictionary[] result, int index) {
+        result[index++] = idContext.getBiDirectionalDictionary();
+        result[index++] = labelContext.getBiDirectionalDictionary();
+        for (NodePropertyPairContext attributeContext : attributesContext) {
+            result[index++] = attributeContext.getBiDirectionalDictionary();
         }
         return index;
     }
 
-    /**
-     * Copies relation dictionary references into the supplied output array.
-     *
-     * @param biDirectionalDictionaries output dictionary array
-     * @param index first position to write
-     */
-    private void copyRelationDictionaries(BiDirectionalDictionary[] biDirectionalDictionaries, int index) {
-        for (RelationContext relationContext : relationContext) {
-            biDirectionalDictionaries[index++] = relationContext.getBiDirectionalDictionary();
+    private void copyRelationDictionaries(BiDirectionalDictionary[] result, int index) {
+        for (RelationPropertyContext relation : relations) {
+            result[index++] = relation.getBiDirectionalDictionary();
         }
     }
 
     /**
-     * Flattens all inverted-index references into the engine array order:
-     * from id, from label, from attributes, to id, to label, to attributes, and
-     * relation indexes.
+     * Flattens all inverted-index references into engine array order:
+     * from-side columns, to-side columns, then relation columns.
      *
      * @return inverted-index references in engine column order
      */
+    @NotNull
     public InvertedIndexColumn[] flatMapInvertedIndexColumns() {
-        final InvertedIndexColumn[] invertedIndexColumns = new InvertedIndexColumn[spec.getNumberOfTotalColumns()];
-
+        InvertedIndexColumn[] result = new InvertedIndexColumn[totalColumnCount()];
         int index = 0;
-        index = copyFromNodeInvertedIndexColumns(invertedIndexColumns, index);
-        index = copyToNodeInvertedIndexColumns(invertedIndexColumns, index);
-        copyRelationInvertedIndexColumns(invertedIndexColumns, index);
-        return invertedIndexColumns;
+
+        index = copyFromNodeInvertedIndexes(result, index);
+        index = copyToNodeInvertedIndexes(result, index);
+        copyRelationInvertedIndexes(result, index);
+
+        return result;
     }
 
-    /**
-     * Copies from-node inverted-index references into the supplied output array.
-     *
-     * @param invertedIndexColumns output inverted-index array
-     * @param index first position to write
-     * @return next writable position after the copied from-node indexes
-     */
-    private int copyFromNodeInvertedIndexColumns(InvertedIndexColumn[] invertedIndexColumns, int index) {
-        invertedIndexColumns[index++] = idContext.getFromInvertedIndexColumn();
-        invertedIndexColumns[index++] = labelContext.getFromInvertedIndexColumn();
-        for (NodeContext attributeContext : attributesContext) {
-            invertedIndexColumns[index++] = attributeContext.getFromInvertedIndexColumn();
+    private int copyFromNodeInvertedIndexes(InvertedIndexColumn[] result, int index) {
+        result[index++] = idContext.getFromInvertedIndexColumn();
+        result[index++] = labelContext.getFromInvertedIndexColumn();
+        for (NodePropertyPairContext attributeContext : attributesContext) {
+            result[index++] = attributeContext.getFromInvertedIndexColumn();
         }
         return index;
     }
 
-    /**
-     * Copies to-node inverted-index references into the supplied output array.
-     *
-     * @param invertedIndexColumns output inverted-index array
-     * @param index first position to write
-     * @return next writable position after the copied to-node indexes
-     */
-    private int copyToNodeInvertedIndexColumns(InvertedIndexColumn[] invertedIndexColumns, int index) {
-        invertedIndexColumns[index++] = idContext.getToInvertedIndexColumn();
-        invertedIndexColumns[index++] = labelContext.getToInvertedIndexColumn();
-        for (NodeContext attributeContext : attributesContext) {
-            invertedIndexColumns[index++] = attributeContext.getToInvertedIndexColumn();
+    private int copyToNodeInvertedIndexes(InvertedIndexColumn[] result, int index) {
+        result[index++] = idContext.getToInvertedIndexColumn();
+        result[index++] = labelContext.getToInvertedIndexColumn();
+        for (NodePropertyPairContext attributeContext : attributesContext) {
+            result[index++] = attributeContext.getToInvertedIndexColumn();
         }
         return index;
     }
 
-    /**
-     * Copies relation inverted-index references into the supplied output array.
-     *
-     * @param invertedIndexColumns output inverted-index array
-     * @param index first position to write
-     */
-    private void copyRelationInvertedIndexColumns(InvertedIndexColumn[] invertedIndexColumns, int index) {
-        for (RelationContext relationContext : relationContext) {
-            invertedIndexColumns[index++] = relationContext.getInvertedIndexColumn();
+    private void copyRelationInvertedIndexes(InvertedIndexColumn[] result, int index) {
+        for (RelationPropertyContext relation : relations) {
+            result[index++] = relation.getInvertedIndexColumn();
         }
     }
 
     /**
-     * Builds a map from flattened graph target index to raw data-cube column
-     * index. The target order is from id, from label, from attributes, to id,
-     * to label, to attributes, then relations.
+     * Builds a map from flattened target index to raw data-cube column index.
+     * Order: from-side columns, to-side columns, then relation columns.
      *
      * @return data-cube column index for each flattened graph target index
      */
+    @NotNull
     public int[] flatMapTargetIndexToDataCubeIndex() {
-        int[] array = new int[spec.getNumberOfTotalColumns()];
-        int targetIndex = 0;
-        targetIndex = copyFromNodeTargetIndexes(array, targetIndex);
-        targetIndex = copyToNodeTargetIndexes(array, targetIndex);
-        copyRelationTargetIndexes(array, targetIndex);
-        return array;
+        int[] result = new int[totalColumnCount()];
+        int index = 0;
+
+        index = copyFromNodeDataCubeIndexes(result, index);
+        index = copyToNodeDataCubeIndexes(result, index);
+        copyRelationDataCubeIndexes(result, index);
+
+        return result;
     }
 
-    /**
-     * Copies one node-side group of source data-cube indexes into the supplied
-     * target-index mapping.
-     *
-     * @param targetIndexToDataCubeIndex output array indexed by flattened target index
-     * @param targetIndex first target position to write
-     * @return next writable target position after the copied from-node indexes
-     */
-    private int copyFromNodeTargetIndexes(int[] targetIndexToDataCubeIndex, int targetIndex) {
-        targetIndexToDataCubeIndex[targetIndex++] = idContext.getFromDataCubeIndex();
-        targetIndexToDataCubeIndex[targetIndex++] = labelContext.getFromDataCubeIndex();
-        for (NodeContext attributeContext : attributesContext) {
-            targetIndexToDataCubeIndex[targetIndex++] = attributeContext.getFromDataCubeIndex();
+    private int copyFromNodeDataCubeIndexes(int[] result, int index) {
+        result[index++] = idContext.getFromDataCubeIndex();
+        result[index++] = labelContext.getFromDataCubeIndex();
+        for (NodePropertyPairContext attributeContext : attributesContext) {
+            result[index++] = attributeContext.getFromDataCubeIndex();
         }
-        return targetIndex;
+        return index;
     }
 
-    /**
-     * Copies one to-node group of source data-cube indexes into the supplied
-     * target-index mapping.
-     *
-     * @param targetIndexToDataCubeIndex output array indexed by flattened target index
-     * @param targetIndex first target position to write
-     * @return next writable target position after the copied to-node indexes
-     */
-    private int copyToNodeTargetIndexes(int[] targetIndexToDataCubeIndex, int targetIndex) {
-        targetIndexToDataCubeIndex[targetIndex++] = idContext.getToDataCubeIndex();
-        targetIndexToDataCubeIndex[targetIndex++] = labelContext.getToDataCubeIndex();
-        for (NodeContext attributeContext : attributesContext) {
-            targetIndexToDataCubeIndex[targetIndex++] = attributeContext.getToDataCubeIndex();
+    private int copyToNodeDataCubeIndexes(int[] result, int index) {
+        result[index++] = idContext.getToDataCubeIndex();
+        result[index++] = labelContext.getToDataCubeIndex();
+        for (NodePropertyPairContext attributeContext : attributesContext) {
+            result[index++] = attributeContext.getToDataCubeIndex();
         }
-        return targetIndex;
+        return index;
     }
 
-    /**
-     * Copies relation source data-cube indexes into the supplied target-index
-     * mapping.
-     *
-     * @param targetIndexToDataCubeIndex output array indexed by flattened target index
-     * @param targetIndex first target position to write
-     */
-    private void copyRelationTargetIndexes(int[] targetIndexToDataCubeIndex, int targetIndex) {
-        for (RelationContext relationContext : relationContext) {
-            targetIndexToDataCubeIndex[targetIndex++] = relationContext.getIndexFromDataCube();
+    private void copyRelationDataCubeIndexes(int[] result, int index) {
+        for (RelationPropertyContext relation : relations) {
+            result[index++] = relation.getIndexFromDataCube();
         }
     }
 
     /**
-     * Flattens all integer columnar-store references into the engine array
-     * order: from id, from label, from attributes, to id, to label,
-     * to attributes, and relation stores.
+     * Flattens all integer columnar-store references into engine array order:
+     * from-side columns, to-side columns, then relation columns.
      *
      * @return integer columnar-store references in engine column order
      */
+    @NotNull
     public IntegerColumnarStore[] flatMapIntegerColumnarStores() {
-        final IntegerColumnarStore[] columnarStores = new IntegerColumnarStore[spec.getNumberOfTotalColumns()];
-
+        IntegerColumnarStore[] result = new IntegerColumnarStore[totalColumnCount()];
         int index = 0;
-        index = copyFromNodeIntegerColumnarStores(columnarStores, index);
-        index = copyToNodeIntegerColumnarStores(columnarStores, index);
-        copyRelationIntegerColumnarStores(columnarStores, index);
-        return columnarStores;
+
+        index = copyFromNodeStores(result, index);
+        index = copyToNodeStores(result, index);
+        copyRelationStores(result, index);
+
+        return result;
     }
 
-    /**
-     * Copies from-node integer column stores into the supplied output array.
-     *
-     * @param columnarStores output integer columnar-store array
-     * @param index first position to write
-     * @return next writable position after the copied from-node stores
-     */
-    private int copyFromNodeIntegerColumnarStores(IntegerColumnarStore[] columnarStores, int index) {
-        columnarStores[index++] = idContext.getFromIntegerColumnarStore();
-        columnarStores[index++] = labelContext.getFromIntegerColumnarStore();
-        for (NodeContext attributeContext : attributesContext) {
-            columnarStores[index++] = attributeContext.getFromIntegerColumnarStore();
+    private int copyFromNodeStores(IntegerColumnarStore[] result, int index) {
+        result[index++] = idContext.getFromIntegerColumnarStore();
+        result[index++] = labelContext.getFromIntegerColumnarStore();
+        for (NodePropertyPairContext attributeContext : attributesContext) {
+            result[index++] = attributeContext.getFromIntegerColumnarStore();
         }
         return index;
     }
 
-    /**
-     * Copies to-node integer column stores into the supplied output array.
-     *
-     * @param columnarStores output integer columnar-store array
-     * @param index first position to write
-     * @return next writable position after the copied to-node stores
-     */
-    private int copyToNodeIntegerColumnarStores(IntegerColumnarStore[] columnarStores, int index) {
-        columnarStores[index++] = idContext.getToIntegerColumnarStore();
-        columnarStores[index++] = labelContext.getToIntegerColumnarStore();
-        for (NodeContext attributeContext : attributesContext) {
-            columnarStores[index++] = attributeContext.getToIntegerColumnarStore();
+    private int copyToNodeStores(IntegerColumnarStore[] result, int index) {
+        result[index++] = idContext.getToIntegerColumnarStore();
+        result[index++] = labelContext.getToIntegerColumnarStore();
+        for (NodePropertyPairContext attributeContext : attributesContext) {
+            result[index++] = attributeContext.getToIntegerColumnarStore();
         }
         return index;
     }
 
-    /**
-     * Copies relation integer column stores into the supplied output array.
-     *
-     * @param columnarStores output integer columnar-store array
-     * @param index first position to write
-     */
-    private void copyRelationIntegerColumnarStores(IntegerColumnarStore[] columnarStores, int index) {
-        for (RelationContext relationContext : relationContext) {
-            columnarStores[index++] = relationContext.getRelationIntegerColumnarStore();
+    private void copyRelationStores(IntegerColumnarStore[] result, int index) {
+        for (RelationPropertyContext relation : relations) {
+            result[index++] = relation.getRelationIntegerColumnarStore();
         }
+    }
+
+    private int nodeColumnCount() {
+        return 2 + attributesContext.length;
+    }
+
+    private int totalColumnCount() {
+        return (nodeColumnCount() * 2) + relations.length;
     }
 }
