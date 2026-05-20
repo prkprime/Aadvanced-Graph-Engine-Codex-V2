@@ -58,18 +58,54 @@ public class GraphIngestionEngine {
         targetIndexToDataCubeIndex = graphEngineContext.flatMapTargetIndexToDataCubeIndex();
     }
 
-    /**
-     * Ingests one raw row from the store used to construct this engine.
-     *
-     * @param rowId zero-based source row id to ingest
-     */
     public synchronized void ingest(int rowId) {
-        for (int i = 0; i < targetIndexToDataCubeIndex.length; i++) {
-            String targetData = this.dataCube.getString(rowId, targetIndexToDataCubeIndex[i]);
-            int orEncode = biDirectionalDictionaries[i].getOrEncode(targetData);
-            invertedIndexColumns[i].addRowToValue(orEncode, rowId);
-            numericColumnarStores[i].appendRow(rowId, orEncode);
+        String fromId = this.dataCube.getString(rowId, this.graphEngineContext.getFromIdColIndex());
+        String toId = this.dataCube.getString(rowId, this.graphEngineContext.getToIdColIndex());
+
+        boolean isFromNull = (fromId == null);
+        boolean isToNull = (toId == null);
+
+        if (isFromNull && isToNull) {
+            System.out.println("Skipped row " + rowId + " because both FROM_ID and TO_ID are null.");
+            return;
         }
+
+        int nextInternalRowId = getIngestedRowCount();
+
+        if (isFromNull) {
+            this.graphEngineContext.getFromDeleted().add(nextInternalRowId);
+            ingestWithMask(rowId, nextInternalRowId, this.graphEngineContext.getFromNullReadMask());
+        } else if (isToNull) {
+            this.graphEngineContext.getToDeleted().add(nextInternalRowId);
+            ingestWithMask(rowId, nextInternalRowId, this.graphEngineContext.getToNullReadMask());
+        } else {
+            // Standard row: read all columns directly
+            for (int i = 0; i < targetIndexToDataCubeIndex.length; i++) {
+                encodeAndStore(i, this.dataCube.getString(rowId, targetIndexToDataCubeIndex[i]), nextInternalRowId);
+            }
+        }
+    }
+
+    /**
+     * Ingests a partial row using the supplied read mask. For each target column index,
+     * reads the value from the data cube only if that index is set in the mask; otherwise
+     * stores null, meaning that side of the row is tombstoned.
+     *
+     * @param rowId           source row to read from the data cube
+     * @param internalRowId   destination row in the encoded stores
+     * @param readMask        bitmap of target column indices that should be read
+     */
+    private void ingestWithMask(int rowId, int internalRowId, RoaringBitmap readMask) {
+        for (int i = 0; i < targetIndexToDataCubeIndex.length; i++) {
+            String value = readMask.contains(i) ? this.dataCube.getString(rowId, targetIndexToDataCubeIndex[i]) : null;
+            encodeAndStore(i, value, internalRowId);
+        }
+    }
+
+    private void encodeAndStore(int colIndex, String value, int internalRowId) {
+        int orEncode = biDirectionalDictionaries[colIndex].getOrEncode(value);
+        invertedIndexColumns[colIndex].addRowToValue(orEncode, internalRowId);
+        numericColumnarStores[colIndex].appendRow(internalRowId, orEncode);
     }
 
     /**
@@ -94,6 +130,15 @@ public class GraphIngestionEngine {
      */
     public synchronized int getIngestedRowCount() {
         return numericColumnarStores[0].getRowCount();
+    }
+
+    /**
+     * Returns the graph engine context containing dictionaries, inverted indexes, and row tombstones.
+     *
+     * @return the graph engine context
+     */
+    public synchronized GraphEngineContext getGraphEngineContext() {
+        return graphEngineContext;
     }
 
     /**
@@ -123,8 +168,12 @@ public class GraphIngestionEngine {
 
         int rowCount = getIngestedRowCount();
         for (int rowId = 0; rowId < rowCount; rowId++) {
-            addDecodedVertex(dictionary, fromNodeIdStore, fromNodeLabelStore, nodeIdDictionary, nodeLabelDictionary, rowId);
-            addDecodedVertex(dictionary, toNodeIdStore, toNodeLabelStore, nodeIdDictionary, nodeLabelDictionary, rowId);
+            if (!this.graphEngineContext.getFromDeleted().contains(rowId)) {
+                addDecodedVertex(dictionary, fromNodeIdStore, fromNodeLabelStore, nodeIdDictionary, nodeLabelDictionary, rowId);
+            }
+            if (!this.graphEngineContext.getToDeleted().contains(rowId)) {
+                addDecodedVertex(dictionary, toNodeIdStore, toNodeLabelStore, nodeIdDictionary, nodeLabelDictionary, rowId);
+            }
         }
 
         return dictionary;
@@ -150,8 +199,8 @@ public class GraphIngestionEngine {
         BiDirectionalDictionary nodeIdDictionary = biDirectionalDictionaries[fromNodeIdStoreIndex];
 
         for (int rowId = 0; rowId < rowCount; rowId++) {
-            String fromVertexId = nodeIdDictionary.getValue(fromNodeIdStore.getInt(rowId));
-            String toVertexId = nodeIdDictionary.getValue(toNodeIdStore.getInt(rowId));
+            String fromVertexId = this.graphEngineContext.getFromDeleted().contains(rowId) ? null : nodeIdDictionary.getValue(fromNodeIdStore.getInt(rowId));
+            String toVertexId = this.graphEngineContext.getToDeleted().contains(rowId) ? null : nodeIdDictionary.getValue(toNodeIdStore.getInt(rowId));
             edges.add(new GraphEdgeResponse(fromVertexId, toVertexId, decodeRelationValues(rowId, relationStartStoreIndex)));
         }
 
@@ -179,6 +228,9 @@ public class GraphIngestionEngine {
             BiDirectionalDictionary nodeLabelDictionary,
             int rowId) {
         String nodeId = nodeIdDictionary.getValue(nodeIdStore.getInt(rowId));
+        if (nodeId == null) {
+            return;
+        }
         String nodeLabel = nodeLabelDictionary.getValue(nodeLabelStore.getInt(rowId));
         dictionary.putIfAbsent(nodeId, nodeLabel);
     }

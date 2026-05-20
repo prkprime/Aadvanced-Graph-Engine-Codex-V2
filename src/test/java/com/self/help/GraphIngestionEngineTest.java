@@ -116,4 +116,110 @@ public class GraphIngestionEngineTest {
         assertTrue(candidateRows.isEmpty());
         assertFalse(hasMatches);
     }
+
+    @Test
+    public void skipsCompletelyNullRowsDuringIngestion() {
+        RawDataStore store = new RawDataStore(List.of("fromCity", "toCity", "medium"));
+        store.ingestRow(new String[]{null, null, "byRoad"});
+        store.ingestRow(new String[]{"Mumbai", "Pune", "byRoad"});
+
+        MappingSpec spec = new MappingSpec(
+                new NodeSpec("fromCity", null, null),
+                new NodeSpec("toCity", null, null),
+                List.of("medium"));
+        GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
+
+        engine.ingest(0); // Should be skipped
+        engine.ingest(1); // Should be ingested as internal row index 0
+
+        assertEquals(1, engine.getIngestedRowCount());
+        List<GraphEdgeResponse> edges = engine.getEdges();
+        assertEquals(1, edges.size());
+        assertEquals(new GraphEdgeResponse("Mumbai", "Pune", List.of("byRoad")), edges.get(0));
+        assertTrue(engine.getGraphEngineContext().getFromDeleted().isEmpty());
+        assertTrue(engine.getGraphEngineContext().getToDeleted().isEmpty());
+    }
+
+    @Test
+    public void ingestsPartiallyNullRowsAndTracksTombstones() {
+        RawDataStore store = new RawDataStore(List.of("fromCity", "toCity", "medium"));
+        // Row 0: FROM_ID is null (tombstone)
+        store.ingestRow(new String[]{null, "Pune", "byRoad"});
+        // Row 1: TO_ID is null (tombstone)
+        store.ingestRow(new String[]{"Mumbai", null, "byRoad"});
+        // Row 2: Standard row
+        store.ingestRow(new String[]{"Mumbai", "Pune", "byRoad"});
+
+        MappingSpec spec = new MappingSpec(
+                new NodeSpec("fromCity", null, null),
+                new NodeSpec("toCity", null, null),
+                List.of("medium"));
+        GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
+
+        engine.ingest(0); // Internal row 0
+        engine.ingest(1); // Internal row 1
+        engine.ingest(2); // Internal row 2
+
+        assertEquals(3, engine.getIngestedRowCount());
+
+        // Check tombstones in GraphEngineContext
+        assertTrue(engine.getGraphEngineContext().getFromDeleted().contains(0));
+        assertFalse(engine.getGraphEngineContext().getFromDeleted().contains(1));
+        assertFalse(engine.getGraphEngineContext().getFromDeleted().contains(2));
+
+        assertTrue(engine.getGraphEngineContext().getToDeleted().contains(1));
+        assertFalse(engine.getGraphEngineContext().getToDeleted().contains(0));
+        assertFalse(engine.getGraphEngineContext().getToDeleted().contains(2));
+
+        // Verify that the vertex dictionary correctly skips the null vertex ID key
+        java.util.Map<String, String> vertexDict = engine.getVertexDictionary();
+        assertFalse(vertexDict.containsKey(null));
+        assertTrue(vertexDict.containsKey("Mumbai"));
+        assertTrue(vertexDict.containsKey("Pune"));
+
+        // Verify edges response has null IDs and null relation values
+        List<GraphEdgeResponse> edges = engine.getEdges();
+        assertEquals(3, edges.size());
+
+        // Row 0 (FROM_ID is null): relations are nullified
+        assertEquals(null, edges.get(0).fromVertexId());
+        assertEquals("Pune", edges.get(0).toVertexId());
+        assertEquals(java.util.Collections.singletonList(null), edges.get(0).relations());
+
+        // Row 1 (TO_ID is null): relations are nullified
+        assertEquals("Mumbai", edges.get(1).fromVertexId());
+        assertEquals(null, edges.get(1).toVertexId());
+        assertEquals(java.util.Collections.singletonList(null), edges.get(1).relations());
+
+        // Row 2 (Standard row): relations preserved
+        assertEquals("Mumbai", edges.get(2).fromVertexId());
+        assertEquals("Pune", edges.get(2).toVertexId());
+        assertEquals(List.of("byRoad"), edges.get(2).relations());
+    }
+
+    @Test
+    public void treatsStringBlanksAsUniqueValidIdentifiers() {
+        RawDataStore store = new RawDataStore(List.of("fromCity", "toCity", "medium"));
+        // Row 0: FROM_ID is empty string "" (not null)
+        store.ingestRow(new String[]{"", "Pune", "byRoad"});
+
+        MappingSpec spec = new MappingSpec(
+                new NodeSpec("fromCity", null, null),
+                new NodeSpec("toCity", null, null),
+                List.of("medium"));
+        GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
+
+        engine.ingest(0);
+
+        assertEquals(1, engine.getIngestedRowCount());
+        // Should not track as tombstone
+        assertTrue(engine.getGraphEngineContext().getFromDeleted().isEmpty());
+        assertTrue(engine.getGraphEngineContext().getToDeleted().isEmpty());
+
+        List<GraphEdgeResponse> edges = engine.getEdges();
+        assertEquals(1, edges.size());
+        assertEquals("", edges.get(0).fromVertexId());
+        assertEquals("Pune", edges.get(0).toVertexId());
+        assertEquals(List.of("byRoad"), edges.get(0).relations());
+    }
 }

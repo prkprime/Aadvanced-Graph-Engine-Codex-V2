@@ -7,6 +7,7 @@ import com.self.help.legacy.RawDataStore;
 import com.self.help.storage.BiDirectionalDictionary;
 import com.self.help.storage.InvertedIndexColumn;
 import lombok.AccessLevel;
+import org.roaringbitmap.RoaringBitmap;
 import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
 
@@ -24,15 +25,12 @@ public class GraphEngineContext {
     /**
      * Raw source store used to resolve source column names to data-cube indexes.
      */
-    @NotNull
     @Getter(AccessLevel.PRIVATE)
     private final RawDataStore dataCube;
 
     /**
      * Mapping specification used to size flattened context arrays.
      */
-    @NotNull
-    @Getter(AccessLevel.PRIVATE)
     private final MappingSpec spec;
 
     /**
@@ -58,13 +56,35 @@ public class GraphEngineContext {
     private final RelationContext[] relationContext;
 
     /**
+     * Bitmap tracking row indices where the FROM-node ID was null (tombstoned).
+     */
+    private final RoaringBitmap fromDeleted = new RoaringBitmap();
+
+    /**
+     * Bitmap tracking row indices where the TO-node ID was null (tombstoned).
+     */
+    private final RoaringBitmap toDeleted = new RoaringBitmap();
+
+    @Getter
+    private final int fromIdColIndex;
+
+    @Getter
+    private final int toIdColIndex;
+
+    @Getter
+    private final RoaringBitmap fromNullReadMask = new RoaringBitmap();
+
+    @Getter
+    private final RoaringBitmap toNullReadMask = new RoaringBitmap();
+
+    /**
      * Builds all node and relation contexts for the supplied graph mapping.
      * Node id and label columns are represented as paired from/to contexts,
      * attributes are paired by list position, and each relation column receives
      * its own relation context.
      *
      * @param dataCube raw source store that owns the mapped columns
-     * @param spec graph mapping that identifies node and relation columns
+     * @param spec     graph mapping that identifies node and relation columns
      */
     public GraphEngineContext(@NotNull RawDataStore dataCube, @NotNull MappingSpec spec) {
         this.dataCube = dataCube;
@@ -74,6 +94,9 @@ public class GraphEngineContext {
 
         this.idContext = new NodeContext(dataCube, fromNodeSpec.getIdColumnName(), toNodeSpec.getIdColumnName());
         this.labelContext = new NodeContext(dataCube, fromNodeSpec.getLabelColumnName(), toNodeSpec.getLabelColumnName());
+
+        this.fromIdColIndex = dataCube.getColumnIndex(fromNodeSpec.getIdColumnName());
+        this.toIdColIndex = dataCube.getColumnIndex(toNodeSpec.getIdColumnName());
 
         List<String> fromAttributes = fromNodeSpec.getNodeAttributeNames();
         List<String> toAttributes = toNodeSpec.getNodeAttributeNames();
@@ -86,6 +109,20 @@ public class GraphEngineContext {
         this.relationContext = new RelationContext[relationNames.size()];
         for (int index = 0; index < relationNames.size(); index++) {
             this.relationContext[index] = new RelationContext(dataCube, relationNames.get(index));
+        }
+
+        int totalCols = spec.getNumberOfTotalColumns();
+        int nodeColCount = 2 + fromAttributes.size();
+
+        for (int i = 0; i < totalCols; i++) {
+            // When FROM is null, read only TO node columns
+            if (i >= nodeColCount && i < 2 * nodeColCount) {
+                this.fromNullReadMask.add(i);
+            }
+            // When TO is null, read only FROM node columns
+            if (i < nodeColCount) {
+                this.toNullReadMask.add(i);
+            }
         }
     }
 
