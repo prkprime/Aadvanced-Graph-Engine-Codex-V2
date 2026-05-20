@@ -1,9 +1,11 @@
 package com.self.help;
 
+import com.self.help.context.ColumnContext;
 import com.self.help.context.GraphEngineContext;
-import com.self.help.input.GraphMappingSchema;
-import com.self.help.input.MappingSpec;
-import com.self.help.input.MappingTargetType;
+import com.self.help.context.NodeSideContext;
+import com.self.help.context.RelationColumnContext;
+import com.self.help.input.GraphMappingSpec;
+import com.self.help.enums.MappingTargetType;
 import com.self.help.legacy.IntegerColumnarStore;
 import com.self.help.legacy.RawDataStore;
 import com.self.help.output.GraphEdgeResponse;
@@ -18,7 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static com.self.help.util.MappingSpecUtil.validateSpec;
+import static com.self.help.util.GraphMappingSchemaValidator.validate;
 
 /**
  * Ingests rows from a raw column store into a graph-oriented index structure.
@@ -47,10 +49,10 @@ public class GraphIngestionEngine {
      * @throws IllegalArgumentException when mapped columns are missing, attributes are mismatched,
      *                                  or from/to node specs share source columns
      */
-    public GraphIngestionEngine(RawDataStore dataCube, MappingSpec spec) {
-        validateSpec(dataCube, spec);
+    public GraphIngestionEngine(RawDataStore dataCube, GraphMappingSpec schema) {
+        validate(dataCube, schema);
         this.dataCube = dataCube;
-        graphEngineContext = new GraphEngineContext(dataCube, spec);
+        graphEngineContext = new GraphEngineContext(dataCube, schema);
         numericColumnarStores = graphEngineContext.flatMapIntegerColumnarStores();
 
         biDirectionalDictionaries = graphEngineContext.flatMapBiDirectionalDictionaries();
@@ -151,32 +153,21 @@ public class GraphIngestionEngine {
      * @return vertex id to vertex label mapping in first-seen order
      */
     public synchronized Map<String, String> getVertexDictionary() {
-        Map<String, String> dictionary = new LinkedHashMap<>();
-        int nodeColumnCount = 2 + graphEngineContext.getAttributesContext().length;
-        int fromNodeIdStoreIndex = 0;
-        int fromNodeLabelStoreIndex = 1;
-        int toNodeIdStoreIndex = nodeColumnCount;
-        int toNodeLabelStoreIndex = nodeColumnCount + 1;
-
-        IntegerColumnarStore fromNodeIdStore = numericColumnarStores[fromNodeIdStoreIndex];
-        IntegerColumnarStore fromNodeLabelStore = numericColumnarStores[fromNodeLabelStoreIndex];
-        IntegerColumnarStore toNodeIdStore = numericColumnarStores[toNodeIdStoreIndex];
-        IntegerColumnarStore toNodeLabelStore = numericColumnarStores[toNodeLabelStoreIndex];
-
-        BiDirectionalDictionary nodeIdDictionary = biDirectionalDictionaries[fromNodeIdStoreIndex];
-        BiDirectionalDictionary nodeLabelDictionary = biDirectionalDictionaries[fromNodeLabelStoreIndex];
+        Map<String, String> result = new LinkedHashMap<>();
+        NodeSideContext from = graphEngineContext.getFromSide();
+        NodeSideContext to   = graphEngineContext.getToSide();
 
         int rowCount = getIngestedRowCount();
         for (int rowId = 0; rowId < rowCount; rowId++) {
-            if (!this.graphEngineContext.getFromDeleted().contains(rowId)) {
-                addDecodedVertex(dictionary, fromNodeIdStore, fromNodeLabelStore, nodeIdDictionary, nodeLabelDictionary, rowId);
+            if (!graphEngineContext.getFromDeleted().contains(rowId)) {
+                addDecodedVertex(result, from.getId(), from.getLabel(), rowId);
             }
-            if (!this.graphEngineContext.getToDeleted().contains(rowId)) {
-                addDecodedVertex(dictionary, toNodeIdStore, toNodeLabelStore, nodeIdDictionary, nodeLabelDictionary, rowId);
+            if (!graphEngineContext.getToDeleted().contains(rowId)) {
+                addDecodedVertex(result, to.getId(), to.getLabel(), rowId);
             }
         }
 
-        return dictionary;
+        return result;
     }
 
     /**
@@ -189,50 +180,40 @@ public class GraphIngestionEngine {
     public synchronized List<GraphEdgeResponse> getEdges() {
         int rowCount = getIngestedRowCount();
         List<GraphEdgeResponse> edges = new ArrayList<>(rowCount);
-        int nodeColumnCount = 2 + graphEngineContext.getAttributesContext().length;
-        int fromNodeIdStoreIndex = 0;
-        int toNodeIdStoreIndex = nodeColumnCount;
-        int relationStartStoreIndex = nodeColumnCount * 2;
-
-        IntegerColumnarStore fromNodeIdStore = numericColumnarStores[fromNodeIdStoreIndex];
-        IntegerColumnarStore toNodeIdStore = numericColumnarStores[toNodeIdStoreIndex];
-        BiDirectionalDictionary nodeIdDictionary = biDirectionalDictionaries[fromNodeIdStoreIndex];
+        NodeSideContext from = graphEngineContext.getFromSide();
+        NodeSideContext to   = graphEngineContext.getToSide();
+        BiDirectionalDictionary sharedIdDict = graphEngineContext.getSharedIdDictionary();
 
         for (int rowId = 0; rowId < rowCount; rowId++) {
-            String fromVertexId = this.graphEngineContext.getFromDeleted().contains(rowId) ? null : nodeIdDictionary.getValue(fromNodeIdStore.getInt(rowId));
-            String toVertexId = this.graphEngineContext.getToDeleted().contains(rowId) ? null : nodeIdDictionary.getValue(toNodeIdStore.getInt(rowId));
-            edges.add(new GraphEdgeResponse(fromVertexId, toVertexId, decodeRelationValues(rowId, relationStartStoreIndex)));
+            String fromVertexId = graphEngineContext.getFromDeleted().contains(rowId) ? null
+                    : sharedIdDict.getValue(from.getId().getStore().getInt(rowId));
+            String toVertexId   = graphEngineContext.getToDeleted().contains(rowId)   ? null
+                    : sharedIdDict.getValue(to.getId().getStore().getInt(rowId));
+            edges.add(new GraphEdgeResponse(fromVertexId, toVertexId, decodeRelationValues(rowId)));
         }
 
         return List.copyOf(edges);
     }
 
-    private List<String> decodeRelationValues(int rowId, int relationStartStoreIndex) {
-        int relationCount = graphEngineContext.getRelationContext().length;
-        List<String> relations = new ArrayList<>(relationCount);
-
-        for (int relationIndex = 0; relationIndex < relationCount; relationIndex++) {
-            int storeIndex = relationStartStoreIndex + relationIndex;
-            int encodedValue = numericColumnarStores[storeIndex].getInt(rowId);
-            relations.add(biDirectionalDictionaries[storeIndex].getValue(encodedValue));
+    private List<String> decodeRelationValues(int rowId) {
+        RelationColumnContext[] relations = graphEngineContext.getRelations();
+        List<String> result = new ArrayList<>(relations.length);
+        for (RelationColumnContext rel : relations) {
+            result.add(rel.getDictionary().getValue(rel.getStore().getInt(rowId)));
         }
-
-        return relations;
+        return result;
     }
 
     private void addDecodedVertex(
-            Map<String, String> dictionary,
-            IntegerColumnarStore nodeIdStore,
-            IntegerColumnarStore nodeLabelStore,
-            BiDirectionalDictionary nodeIdDictionary,
-            BiDirectionalDictionary nodeLabelDictionary,
+            Map<String, String> result,
+            ColumnContext idCol,
+            ColumnContext labelCol,
             int rowId) {
-        String nodeId = nodeIdDictionary.getValue(nodeIdStore.getInt(rowId));
+        String nodeId = idCol.getDictionary().getValue(idCol.getStore().getInt(rowId));
         if (nodeId == null) {
             return;
         }
-        String nodeLabel = nodeLabelDictionary.getValue(nodeLabelStore.getInt(rowId));
-        dictionary.putIfAbsent(nodeId, nodeLabel);
+        result.putIfAbsent(nodeId, labelCol.getDictionary().getValue(labelCol.getStore().getInt(rowId)));
     }
 
     /**
@@ -247,20 +228,20 @@ public class GraphIngestionEngine {
      */
     @NotNull
     public BiDirectionalDictionary getDictionaryFor(
-            @NotNull GraphMappingSchema schema,
+            @NotNull GraphMappingSpec schema,
             @NotNull MappingTargetType targetType,
             @Nullable String name) {
         
         return switch (targetType) {
-            case ID -> graphEngineContext.getIdContext().getBiDirectionalDictionary();
-            case LABEL -> graphEngineContext.getLabelContext().getBiDirectionalDictionary();
+            case ID    -> graphEngineContext.getSharedIdDictionary();
+            case LABEL -> graphEngineContext.getFromSide().getLabel().getDictionary();
             case ATTRIBUTE -> {
                 if (name == null || name.isBlank()) {
                     throw new IllegalArgumentException("Attribute name is required to lookup ATTRIBUTE dictionary");
                 }
                 int attrIndex = -1;
-                for (int i = 0; i < schema.attributePairs().size(); i++) {
-                    if (schema.attributePairs().get(i).attributeName().equalsIgnoreCase(name)) {
+                for (int i = 0; i < schema.nodeAttributes().size(); i++) {
+                    if (schema.nodeAttributes().get(i).attributeName().equalsIgnoreCase(name)) {
                         attrIndex = i;
                         break;
                     }
@@ -268,15 +249,15 @@ public class GraphIngestionEngine {
                 if (attrIndex == -1) {
                     throw new IllegalArgumentException("Attribute '" + name + "' not found in mapping schema");
                 }
-                yield graphEngineContext.getAttributesContext()[attrIndex].getBiDirectionalDictionary();
+                yield graphEngineContext.getFromSide().getAttributes()[attrIndex].getDictionary();
             }
             case RELATION -> {
                 if (name == null || name.isBlank()) {
                     throw new IllegalArgumentException("Relation column name is required to lookup RELATION dictionary");
                 }
                 int relIndex = -1;
-                for (int i = 0; i < schema.relationColumns().size(); i++) {
-                    if (schema.relationColumns().get(i).equalsIgnoreCase(name)) {
+                for (int i = 0; i < schema.relations().size(); i++) {
+                    if (schema.relations().get(i).columnName().equalsIgnoreCase(name)) {
                         relIndex = i;
                         break;
                     }
@@ -284,7 +265,7 @@ public class GraphIngestionEngine {
                 if (relIndex == -1) {
                     throw new IllegalArgumentException("Relation column '" + name + "' not found in mapping schema");
                 }
-                yield graphEngineContext.getRelationContext()[relIndex].getBiDirectionalDictionary();
+                yield graphEngineContext.getRelations()[relIndex].getDictionary();
             }
         };
     }

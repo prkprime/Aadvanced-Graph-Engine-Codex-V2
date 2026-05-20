@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
  * into a GraphMappingSchema instance.
  */
 @Component
-public class GraphMappingSchemaConverter implements Converter<String, GraphMappingSchema> {
+public class GraphMappingSchemaConverter implements Converter<String, GraphMappingSpec> {
     private final ObjectMapper objectMapper;
 
     public GraphMappingSchemaConverter(ObjectMapper objectMapper) {
@@ -23,10 +23,10 @@ public class GraphMappingSchemaConverter implements Converter<String, GraphMappi
 
     @Override
     @NotNull
-    public GraphMappingSchema convert(@NotNull String source) {
+    public GraphMappingSpec convert(@NotNull String source) {
         try {
             String decoded = URLDecoder.decode(source, StandardCharsets.UTF_8);
-            return objectMapper.readValue(decoded, GraphMappingSchema.class);
+            return objectMapper.readValue(decoded, GraphMappingSpec.class);
         } catch (IOException | IllegalArgumentException e) {
             throw new IllegalArgumentException("Failed to convert JSON string to GraphMappingSchema: " + e.getMessage(), e);
         }

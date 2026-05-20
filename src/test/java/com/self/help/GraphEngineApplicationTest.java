@@ -1,7 +1,7 @@
 package com.self.help;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.self.help.input.GraphMappingSchema;
+import com.self.help.input.GraphMappingSpec;
 import com.self.help.legacy.RawDataStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,8 +84,8 @@ class GraphEngineApplicationTest {
                 .andExpect(jsonPath("$['ANALYTICS']").value("Analytics Pipeline"));
     }
 
-    private GraphMappingSchema buildTestSchema() {
-        return GraphMappingSchema.builder()
+    private GraphMappingSpec buildTestSchema() {
+        return GraphMappingSpec.builder()
                 .idPair("fromId", "toId")
                 .labelPair("fromLabel", "toLabel")
                 .addAttribute("type", "fromType", "toType")
@@ -96,7 +96,7 @@ class GraphEngineApplicationTest {
 
     @Test
     void exposesDictionaryLookupEndpoint() throws Exception {
-        GraphMappingSchema schema = buildTestSchema();
+        GraphMappingSpec schema = buildTestSchema();
         String schemaJson = objectMapper.writeValueAsString(schema);
         String encodedSchema = java.net.URLEncoder.encode(schemaJson, java.nio.charset.StandardCharsets.UTF_8);
 
@@ -117,7 +117,7 @@ class GraphEngineApplicationTest {
 
     @Test
     void exposesDictionaryLookupEndpointForId() throws Exception {
-        GraphMappingSchema schema = buildTestSchema();
+        GraphMappingSpec schema = buildTestSchema();
         String schemaJson = objectMapper.writeValueAsString(schema);
         String encodedSchema = java.net.URLEncoder.encode(schemaJson, java.nio.charset.StandardCharsets.UTF_8);
 

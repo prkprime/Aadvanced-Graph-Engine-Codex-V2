@@ -1,5 +1,6 @@
 package com.self.help.input;
 
+import com.self.help.enums.MappingTargetType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import java.util.Objects;

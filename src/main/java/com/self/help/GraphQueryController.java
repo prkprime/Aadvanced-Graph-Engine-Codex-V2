@@ -1,7 +1,7 @@
 package com.self.help;
 
 import com.self.help.input.DictionaryQueryRequest;
-import com.self.help.input.GraphMappingSchema;
+import com.self.help.input.GraphMappingSpec;
 import com.self.help.output.GraphEdgeResponse;
 import com.self.help.storage.BiDirectionalDictionary;
 import lombok.RequiredArgsConstructor;
@@ -121,7 +121,7 @@ public class GraphQueryController {
      */
     @PostMapping("/api/v1/graphs/{graphId}/dictionary/lookup/{graphMappingSchema}")
     public Map<Integer, String> lookupDictionary(
-            @PathVariable GraphMappingSchema graphMappingSchema,
+            @PathVariable GraphMappingSpec graphMappingSchema,
             @PathVariable String graphId,
             @RequestBody DictionaryQueryRequest request) {
         BiDirectionalDictionary dictionary = graphIngestionEngine.getDictionaryFor(

@@ -1,4 +1,4 @@
-package com.self.help.input;
+package com.self.help.enums;
 
 /**
  * Defines the target type for graph mapping columns.

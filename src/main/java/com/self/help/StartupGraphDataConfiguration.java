@@ -1,7 +1,6 @@
 package com.self.help;
 
-import com.self.help.input.MappingSpec;
-import com.self.help.input.NodeSpec;
+import com.self.help.input.GraphMappingSpec;
 import com.self.help.legacy.RawDataStore;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
@@ -44,15 +43,19 @@ public class StartupGraphDataConfiguration {
     }
 
     @Bean
-    public MappingSpec graphMappingSpec() {
-        NodeSpec fromNode = new NodeSpec("fromId", "fromLabel", List.of("fromType"));
-        NodeSpec toNode = new NodeSpec("toId", "toLabel", List.of("toType"));
-        return new MappingSpec(fromNode, toNode, List.of("relation", "priority"));
+    public GraphMappingSpec graphMappingSchema() {
+        return GraphMappingSpec.builder()
+                .idPair("fromId", "toId")
+                .labelPair("fromLabel", "toLabel")
+                .addAttribute("type", "fromType", "toType")
+                .addRelation("relation")
+                .addRelation("priority")
+                .build();
     }
 
     @Bean
-    public GraphIngestionEngine graphIngestionEngine(RawDataStore graphRawDataStore, MappingSpec graphMappingSpec) {
-        return new GraphIngestionEngine(graphRawDataStore, graphMappingSpec);
+    public GraphIngestionEngine graphIngestionEngine(RawDataStore graphRawDataStore, GraphMappingSpec graphMappingSchema) {
+        return new GraphIngestionEngine(graphRawDataStore, graphMappingSchema);
     }
 
     @Bean

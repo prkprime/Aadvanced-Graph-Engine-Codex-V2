@@ -1,12 +1,11 @@
 package com.self.help;
 
-import com.self.help.input.MappingSpec;
-import com.self.help.input.NodeSpec;
+import com.self.help.input.GraphMappingSpec;
 import com.self.help.legacy.RawDataStore;
 import com.self.help.output.GraphEdgeResponse;
 import com.self.help.storage.BiDirectionalDictionary;
 import com.self.help.storage.InvertedIndexColumn;
-import com.self.help.util.MappingSpecUtil;
+import com.self.help.util.GraphMappingSchemaValidator;
 import org.junit.jupiter.api.Test;
 import org.roaringbitmap.RoaringBitmap;
 
@@ -26,10 +25,10 @@ public class GraphIngestionEngineTest {
         store.ingestRow(new String[]{"Mumbai", null, "Pune", null, "byRoad"});
         store.ingestRow(new String[]{"Pune", null, "Solapur", null, "byRoad"});
 
-        NodeSpec fromCity = new NodeSpec("fromCity", null, null);
-        NodeSpec toCity = new NodeSpec("toCity", null, null);
-
-        MappingSpec spec = new MappingSpec(fromCity, toCity, List.of("medium"));
+        GraphMappingSpec spec = GraphMappingSpec.builder()
+                .idPair("fromCity", "toCity")
+                .addRelation("medium")
+                .build();
         GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
 
         assertDoesNotThrow(() -> {
@@ -46,10 +45,9 @@ public class GraphIngestionEngineTest {
         RawDataStore otherStore = new RawDataStore(List.of("fromCity", "toCity"));
         otherStore.ingestRow(new String[]{"Pune", "Solapur"});
 
-        MappingSpec spec = new MappingSpec(
-                new NodeSpec("fromCity", null, null),
-                new NodeSpec("toCity", null, null),
-                List.of());
+        GraphMappingSpec spec = GraphMappingSpec.builder()
+                .idPair("fromCity", "toCity")
+                .build();
         GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
 
         assertThrows(IllegalArgumentException.class, () -> engine.ingest(0, otherStore));
@@ -61,10 +59,11 @@ public class GraphIngestionEngineTest {
         store.ingestRow(new String[]{"Mumbai", "Pune", "road", "high"});
         store.ingestRow(new String[]{"Pune", "Solapur", "rail", null});
 
-        MappingSpec spec = new MappingSpec(
-                new NodeSpec("fromCity", null, null),
-                new NodeSpec("toCity", null, null),
-                List.of("medium", "priority"));
+        GraphMappingSpec spec = GraphMappingSpec.builder()
+                .idPair("fromCity", "toCity")
+                .addRelation("medium")
+                .addRelation("priority")
+                .build();
         GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
         engine.ingest(0);
         engine.ingest(1);
@@ -99,11 +98,13 @@ public class GraphIngestionEngineTest {
     @Test
     public void duplicateMappedAttributesAreRejected() {
         RawDataStore store = new RawDataStore(List.of("fromCity", "fromRegion", "toCity", "toRegion"));
-        NodeSpec fromCity = new NodeSpec("fromCity", null, List.of("fromRegion", "fromRegion"));
-        NodeSpec toCity = new NodeSpec("toCity", null, List.of("toRegion", "toRegion"));
-        MappingSpec spec = new MappingSpec(fromCity, toCity, List.of());
+        GraphMappingSpec spec = GraphMappingSpec.builder()
+                .idPair("fromCity", "toCity")
+                .addAttribute("region1", "fromRegion", "toRegion")
+                .addAttribute("region2", "fromRegion", "toRegion")
+                .build();
 
-        assertThrows(IllegalArgumentException.class, () -> MappingSpecUtil.validateSpec(store, spec));
+        assertThrows(IllegalArgumentException.class, () -> GraphMappingSchemaValidator.validate(store, spec));
     }
 
     @Test
@@ -123,10 +124,10 @@ public class GraphIngestionEngineTest {
         store.ingestRow(new String[]{null, null, "byRoad"});
         store.ingestRow(new String[]{"Mumbai", "Pune", "byRoad"});
 
-        MappingSpec spec = new MappingSpec(
-                new NodeSpec("fromCity", null, null),
-                new NodeSpec("toCity", null, null),
-                List.of("medium"));
+        GraphMappingSpec spec = GraphMappingSpec.builder()
+                .idPair("fromCity", "toCity")
+                .addRelation("medium")
+                .build();
         GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
 
         engine.ingest(0); // Should be skipped
@@ -150,10 +151,10 @@ public class GraphIngestionEngineTest {
         // Row 2: Standard row
         store.ingestRow(new String[]{"Mumbai", "Pune", "byRoad"});
 
-        MappingSpec spec = new MappingSpec(
-                new NodeSpec("fromCity", null, null),
-                new NodeSpec("toCity", null, null),
-                List.of("medium"));
+        GraphMappingSpec spec = GraphMappingSpec.builder()
+                .idPair("fromCity", "toCity")
+                .addRelation("medium")
+                .build();
         GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
 
         engine.ingest(0); // Internal row 0
@@ -203,10 +204,10 @@ public class GraphIngestionEngineTest {
         // Row 0: FROM_ID is empty string "" (not null)
         store.ingestRow(new String[]{"", "Pune", "byRoad"});
 
-        MappingSpec spec = new MappingSpec(
-                new NodeSpec("fromCity", null, null),
-                new NodeSpec("toCity", null, null),
-                List.of("medium"));
+        GraphMappingSpec spec = GraphMappingSpec.builder()
+                .idPair("fromCity", "toCity")
+                .addRelation("medium")
+                .build();
         GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
 
         engine.ingest(0);
