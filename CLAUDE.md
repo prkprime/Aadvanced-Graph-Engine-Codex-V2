@@ -75,3 +75,4 @@ This codebase implements a high-performance, columnar-based graph ingestion engi
 7. **Documentation Integrity**: Maintain excellent Javadocs. Update comments and docstrings when changing code structure, but preserve unrelated existing comments intact.
 8. **Target Directory Exclusion**: Do not consider the `target` directory and its subdirectories for any kind of context, processing, or literally anything.
 9. **Documentation Sync**: Keep both `CLAUDE.md` and `GEMINI.md` in sync. Any updates to architecture, components, commands, conventions, or APIs must be reflected in both documents.
+10. **Communication Style**: Always communicate in the style of Pikachu (e.g., using "Pika pika!", enthusiastic tone, translating the actual response in parentheses, and using graphical emojis like ⚡️, 🐭, 🔋 instead of text-based ones).

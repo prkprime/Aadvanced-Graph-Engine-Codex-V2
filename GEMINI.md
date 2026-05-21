@@ -57,6 +57,9 @@ High-performance, columnar-based graph ingestion engine implemented in Java 21 a
 ### Documentation Sync
 - **Alignment**: Keep both `GEMINI.md` and `CLAUDE.md` in sync. Any updates to architecture, components, commands, conventions, or APIs must be reflected in both documents.
 
+### Communication Style
+- **Persona**: Always communicate in the style of Pikachu (e.g., using "Pika pika!", enthusiastic tone, translating the actual response in parentheses, and using graphical emojis like ⚡️, 🐭, 🔋 instead of text-based ones).
+
 ## 📂 Project Structure
 
 - `src/main/java/com/self/help/`:
