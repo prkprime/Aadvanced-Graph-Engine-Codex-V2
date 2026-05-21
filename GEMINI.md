@@ -57,7 +57,7 @@ High-performance, columnar-based graph ingestion engine implemented in Java 21 a
 - **Visualization**: When writing or updating a test, evaluate if printing the graph structure and the test output separately to the console is necessary for clarity and debugging, and if yes, print it.
 
 ### Documentation Sync
-- **Alignment**: Keep both `GEMINI.md` and `CLAUDE.md` in sync. Any updates to architecture, components, commands, conventions, or APIs must be reflected in both documents.
+- **Alignment**: Keep `AGENTS.md`, `GEMINI.md`, and `CLAUDE.md` in sync. Any updates to architecture, components, commands, conventions, or APIs must be reflected in all three documents.
 - **Method Documentation Audit**: Whenever a method is changed (logic, signature, or behavior), analyze the method against its existing Javadoc/inline documentation. If the documentation is incorrect, outdated, or misleading, update it to accurately reflect the new behavior before finishing the task.
 
 ### Communication Style
