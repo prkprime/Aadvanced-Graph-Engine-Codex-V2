@@ -8,6 +8,7 @@ import com.self.help.enums.MappingTargetType;
 import com.self.help.legacy.IntegerColumnarStore;
 import com.self.help.legacy.RawDataStore;
 import com.self.help.output.GraphEdgeResponse;
+import com.self.help.output.VertexAttributesResponse;
 import com.self.help.storage.BiDirectionalDictionary;
 import com.self.help.storage.InvertedIndexColumn;
 import org.jetbrains.annotations.NotNull;
@@ -92,9 +93,9 @@ public class GraphIngestionEngine {
      * reads the value from the data cube only if that index is set in the mask; otherwise
      * stores null, meaning that side of the row is tombstoned.
      *
-     * @param rowId           source row to read from the data cube
-     * @param internalRowId   destination row in the encoded stores
-     * @param readMask        bitmap of target column indices that should be read
+     * @param rowId         source row to read from the data cube
+     * @param internalRowId destination row in the encoded stores
+     * @param readMask      bitmap of target column indices that should be read
      */
     private void ingestWithMask(int rowId, int internalRowId, RoaringBitmap readMask) {
         for (int i = 0; i < targetIndexToDataCubeIndex.length; i++) {
@@ -113,7 +114,7 @@ public class GraphIngestionEngine {
      * Ingests one raw row, preserving the original two-argument API while
      * rejecting a store different from the one used to build the engine.
      *
-     * @param rowId zero-based source row id to ingest
+     * @param rowId    zero-based source row id to ingest
      * @param dataCube raw source store used to construct this engine
      * @throws IllegalArgumentException when a different raw store is supplied
      */
@@ -214,7 +215,7 @@ public class GraphIngestionEngine {
         for (int rowId = 0; rowId < rowCount; rowId++) {
             String fromVertexId = graphEngineContext.getFromDeleted().contains(rowId) ? null
                     : sharedIdDict.getValue(idContext.getFromIntegerColumnarStore().getInt(rowId));
-            String toVertexId   = graphEngineContext.getToDeleted().contains(rowId)   ? null
+            String toVertexId = graphEngineContext.getToDeleted().contains(rowId) ? null
                     : sharedIdDict.getValue(idContext.getToIntegerColumnarStore().getInt(rowId));
             edges.add(new GraphEdgeResponse(fromVertexId, toVertexId, decodeRelationValues(rowId)));
         }
@@ -233,7 +234,6 @@ public class GraphIngestionEngine {
     }
 
 
-
     /**
      * Resolves and returns the BiDirectionalDictionary for a given mapping target type and name
      * using the provided schema.
@@ -249,9 +249,9 @@ public class GraphIngestionEngine {
             @NotNull GraphMappingSpec schema,
             @NotNull MappingTargetType targetType,
             @Nullable String name) {
-        
+
         return switch (targetType) {
-            case ID    -> graphEngineContext.getIdContext().getBiDirectionalDictionary();
+            case ID -> graphEngineContext.getIdContext().getBiDirectionalDictionary();
             case LABEL -> graphEngineContext.getLabelContext().getBiDirectionalDictionary();
             case ATTRIBUTE -> {
                 if (name == null || name.isBlank()) {
@@ -286,5 +286,101 @@ public class GraphIngestionEngine {
                 yield graphEngineContext.getRelations()[relIndex].getBiDirectionalDictionary();
             }
         };
+    }
+
+    /**
+     * Resolves and returns the string display label for a given vertex numeric ID
+     * by looking up the first valid non-deleted occurrence in the ingested stores.
+     *
+     * @param numericId encoded integer id of the vertex
+     * @return the resolved display label string, or null if id does not exist
+     */
+    @Nullable
+    public synchronized String getVertexLabel(int numericId) {
+        NodePropertyPairContext idContext = graphEngineContext.getIdContext();
+        if (numericId < 0 || numericId >= idContext.getBiDirectionalDictionary().size()) {
+            return null;
+        }
+
+        NodePropertyPairContext labelContext = graphEngineContext.getLabelContext();
+        BiDirectionalDictionary labelDict = labelContext.getBiDirectionalDictionary();
+
+        // 1. Check from-side occurrences using getRowsForValueOrNull
+        RoaringBitmap fromRows = idContext.getFromInvertedIndexColumn().getRowsForValueOrNull(numericId);
+        String label = resolveLabel(fromRows, labelContext.getFromIntegerColumnarStore(), labelDict);
+        if (label != null) {
+            return label;
+        }
+
+        // 2. Check to-side occurrences using getRowsForValueOrNull
+        RoaringBitmap toRows = idContext.getToInvertedIndexColumn().getRowsForValueOrNull(numericId);
+        return resolveLabel(toRows, labelContext.getToIntegerColumnarStore(), labelDict);
+    }
+
+    private String resolveLabel(
+            @Nullable RoaringBitmap rows,
+            @NotNull IntegerColumnarStore labelStore,
+            @NotNull BiDirectionalDictionary labelDict) {
+        if (rows != null && !rows.isEmpty()) {
+            int rowId = rows.first();
+            int encodedLabel = labelStore.getInt(rowId);
+            return labelDict.getValue(encodedLabel);
+        }
+        return null;
+    }
+
+    /**
+     * Retrieves display label and ordered attribute lists for a vertex.
+     * Searches all active occurrences of this vertex (whether on the from or to side)
+     * and decodes attribute values from the columnar store in mapping order.
+     *
+     * @param numericId encoded integer id of the vertex
+     * @return response with the vertex label and attribute lists
+     */
+    @Nullable
+    public synchronized VertexAttributesResponse getVertexAttributes(int numericId) {
+        String label = getVertexLabel(numericId);
+        if (label == null) {
+            return null;
+        }
+
+        if (graphEngineContext.getAttributesContext().length == 0) {
+            return new VertexAttributesResponse(label, List.of());
+        }
+
+        NodePropertyPairContext idContext = graphEngineContext.getIdContext();
+        RoaringBitmap activeFrom = getActiveRows(idContext.getFromInvertedIndexColumn().getRowsForValueOrNull(numericId), graphEngineContext.getFromDeleted());
+        RoaringBitmap activeTo = getActiveRows(idContext.getToInvertedIndexColumn().getRowsForValueOrNull(numericId), graphEngineContext.getToDeleted());
+
+        if (activeFrom.isEmpty() && activeTo.isEmpty()) {
+            return new VertexAttributesResponse(label, List.of());
+        }
+
+        List<List<String>> uniqueAttributes = java.util.stream.Stream.concat(
+                java.util.Arrays.stream(activeFrom.toArray()).mapToObj(rowId -> getAttributes(rowId, true)),
+                java.util.Arrays.stream(activeTo.toArray()).mapToObj(rowId -> getAttributes(rowId, false))
+        )
+        .distinct()
+        .toList();
+
+        return new VertexAttributesResponse(label, uniqueAttributes);
+    }
+
+    private RoaringBitmap getActiveRows(@Nullable RoaringBitmap rows, @NotNull RoaringBitmap deleted) {
+        return (rows == null || rows.isEmpty()) ? new RoaringBitmap() : RoaringBitmap.andNot(rows, deleted);
+    }
+
+    private List<String> getAttributes(int rowId, boolean isFromSide) {
+        NodePropertyPairContext[] attrContexts = graphEngineContext.getAttributesContext();
+        List<String> attrs = new ArrayList<>(attrContexts.length);
+        for (NodePropertyPairContext attrContext : attrContexts) {
+            IntegerColumnarStore store = isFromSide
+                    ? attrContext.getFromIntegerColumnarStore()
+                    : attrContext.getToIntegerColumnarStore();
+            int encodedVal = store.getInt(rowId);
+            String val = attrContext.getBiDirectionalDictionary().getValue(encodedVal);
+            attrs.add(val);
+        }
+        return attrs;
     }
 }

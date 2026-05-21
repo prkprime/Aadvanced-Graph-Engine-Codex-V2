@@ -1,5 +1,7 @@
 package com.self.help.storage;
 
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.roaringbitmap.RoaringBitmap;
 
 /**
@@ -59,11 +61,11 @@ public class InvertedIndexColumn {
      * Missing dictionary ids return an empty bitmap. Existing dictionary ids
      * return the internal bitmap instance, so callers must not mutate it unless
      * they intentionally want to update the index.
-     *
+     * Note - This should be used only in the ingestion flow
      * @param dictId encoded value id
      * @return bitmap containing matching row ids, or an empty bitmap when absent
      */
-    public RoaringBitmap getRowsForValue(int dictId) {
+    public @NotNull RoaringBitmap getRowsForValue(int dictId) {
         if (dictId < 0 || dictId >= bitmaps.length || bitmaps[dictId] == null) {
             return new RoaringBitmap();
         }
@@ -73,11 +75,11 @@ public class InvertedIndexColumn {
     /**
      * Returns the internal bitmap for a dictionary id, or {@code null} when no
      * rows are indexed for that id.
-     *
+     * Note - this should be used in the query layer.
      * @param dictId encoded value id
      * @return internal bitmap for the id, or {@code null}
      */
-    public RoaringBitmap getRowsForValueOrNull(int dictId) {
+    public @Nullable RoaringBitmap getRowsForValueOrNull(int dictId) {
         if (dictId < 0 || dictId >= bitmaps.length) {
             return null;
         }

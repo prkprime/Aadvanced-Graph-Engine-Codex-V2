@@ -14,6 +14,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -265,5 +267,132 @@ public class GraphIngestionEngineTest {
         List<String> actualOrder = new java.util.ArrayList<>(vertexDict.keySet());
         assertEquals(expectedOrder, actualOrder);
     }
+
+    @Test
+    public void testGetVertexAttributesCorrectness() {
+        RawDataStore store = new RawDataStore(List.of("fromId", "toId", "fromLabel", "toLabel", "fromAttr", "toAttr"));
+        store.ingestRow(new String[]{"V1", "V2", "LabelV1", "LabelV2", "Attr1_V1", "Attr1_V2"});
+        store.ingestRow(new String[]{"V3", "V1", "LabelV3", "LabelV1", "Attr2_V3", "Attr2_V1"});
+        store.ingestRow(new String[]{"V1", null, "LabelV1", null, "AttrDeleted", null}); // toDeleted row, from side active
+        store.ingestRow(new String[]{null, "V1", null, "LabelV1", null, "AttrDeleted2"}); // fromDeleted row, to side active
+        store.ingestRow(new String[]{"V1", "V1", "LabelV1", "LabelV1", "AttrSelf_From", "AttrSelf_To"}); // Self loop
+
+        GraphMappingSpec spec = GraphMappingSpec.builder()
+                .idPair("fromId", "toId")
+                .labelPair("fromLabel", "toLabel")
+                .addAttribute("attr", "fromAttr", "toAttr")
+                .build();
+        GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
+
+        engine.ingest(0);
+        engine.ingest(1);
+        engine.ingest(2);
+        engine.ingest(3);
+        engine.ingest(4);
+
+        int numericId = engine.getGraphEngineContext().getIdContext().getBiDirectionalDictionary().getIdIfExists("V1");
+        com.self.help.output.VertexAttributesResponse response = engine.getVertexAttributes(numericId);
+
+        assertEquals("LabelV1", response.label());
+        List<List<String>> expectedAttrs = List.of(
+                List.of("Attr1_V1"),
+                List.of("AttrDeleted"),
+                List.of("AttrSelf_From"),
+                List.of("Attr2_V1"),
+                List.of("AttrDeleted2"),
+                List.of("AttrSelf_To")
+        );
+        assertEquals(expectedAttrs, response.attributes());
+    }
+
+    @Test
+    public void testGetVertexLabelCorrectness() {
+        RawDataStore store = new RawDataStore(List.of("fromId", "toId", "fromLabel", "toLabel"));
+        store.ingestRow(new String[]{"V1", "V2", "LabelV1", "LabelV2"});
+        store.ingestRow(new String[]{"V3", "V4", "LabelV3", "LabelV4"});
+        store.ingestRow(new String[]{null, "V5", null, "LabelV5"}); // partial row
+
+        GraphMappingSpec spec = GraphMappingSpec.builder()
+                .idPair("fromId", "toId")
+                .labelPair("fromLabel", "toLabel")
+                .build();
+        GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
+
+        engine.ingest(0);
+        engine.ingest(1);
+        engine.ingest(2);
+
+        int idV1 = engine.getGraphEngineContext().getIdContext().getBiDirectionalDictionary().getIdIfExists("V1");
+        int idV5 = engine.getGraphEngineContext().getIdContext().getBiDirectionalDictionary().getIdIfExists("V5");
+
+        assertEquals("LabelV1", engine.getVertexLabel(idV1));
+        assertEquals("LabelV5", engine.getVertexLabel(idV5));
+
+        // Test out-of-bounds inputs to verify robust null-checking
+        assertEquals(null, engine.getVertexLabel(-1));
+        assertEquals(null, engine.getVertexLabel(9999));
+    }
+
+    @Test
+    public void testGetVertexAttributesNullLabel() {
+        RawDataStore store = new RawDataStore(List.of("fromId", "toId", "fromLabel", "toLabel"));
+        store.ingestRow(new String[]{"V1", "V2", "LabelV1", "LabelV2"});
+
+        GraphMappingSpec spec = GraphMappingSpec.builder()
+                .idPair("fromId", "toId")
+                .labelPair("fromLabel", "toLabel")
+                .build();
+        GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
+        engine.ingest(0);
+
+        // Test with invalid / unregistered IDs
+        assertNull(engine.getVertexAttributes(-1));
+        assertNull(engine.getVertexAttributes(9999));
+    }
+
+    @Test
+    public void testGetVertexAttributesTombstoned() {
+        RawDataStore store = new RawDataStore(List.of("fromId", "toId", "fromLabel", "toLabel", "fromAttr", "toAttr"));
+        store.ingestRow(new String[]{"V1", "V2", "LabelV1", "LabelV2", "Attr1", "Attr2"});
+
+        GraphMappingSpec spec = GraphMappingSpec.builder()
+                .idPair("fromId", "toId")
+                .labelPair("fromLabel", "toLabel")
+                .addAttribute("attr", "fromAttr", "toAttr")
+                .build();
+        GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
+        engine.ingest(0);
+
+        int numericId = engine.getGraphEngineContext().getIdContext().getBiDirectionalDictionary().getIdIfExists("V1");
+
+        // Manually tombstone the only row (row 0)
+        engine.getGraphEngineContext().getFromDeleted().add(0);
+
+        com.self.help.output.VertexAttributesResponse response = engine.getVertexAttributes(numericId);
+        assertNotNull(response);
+        assertEquals("LabelV1", response.label());
+        assertTrue(response.attributes().isEmpty());
+    }
+
+    @Test
+    public void testGetVertexAttributesNoConfiguredAttributes() {
+        RawDataStore store = new RawDataStore(List.of("fromId", "toId", "fromLabel", "toLabel"));
+        store.ingestRow(new String[]{"V1", "V2", "LabelV1", "LabelV2"});
+
+        GraphMappingSpec spec = GraphMappingSpec.builder()
+                .idPair("fromId", "toId")
+                .labelPair("fromLabel", "toLabel")
+                .build();
+        GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
+        engine.ingest(0);
+
+        int numericId = engine.getGraphEngineContext().getIdContext().getBiDirectionalDictionary().getIdIfExists("V1");
+
+        com.self.help.output.VertexAttributesResponse response = engine.getVertexAttributes(numericId);
+        assertNotNull(response);
+        assertEquals("LabelV1", response.label());
+        assertTrue(response.attributes().isEmpty());
+    }
 }
+
 

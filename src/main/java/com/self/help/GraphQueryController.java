@@ -3,6 +3,7 @@ package com.self.help;
 import com.self.help.input.DictionaryQueryRequest;
 import com.self.help.input.GraphMappingSpec;
 import com.self.help.output.GraphEdgeResponse;
+import com.self.help.output.VertexAttributesResponse;
 import com.self.help.storage.BiDirectionalDictionary;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -130,5 +131,19 @@ public class GraphQueryController {
                 request.name()
         );
         return dictionary.asMap();
+    }
+
+    /**
+     * Retrieves the display label and list of attribute lists for a vertex by its numeric id.
+     *
+     * @param graphId logical graph identifier supplied in the URL
+     * @param numericId the numeric integer id of the vertex to lookup
+     * @return vertex attributes response
+     */
+    @GetMapping("/api/v1/graphs/{graphId}/vertices/{numericId}/attributes")
+    public VertexAttributesResponse getVertexAttributes(
+            @PathVariable String graphId,
+            @PathVariable int numericId) {
+        return graphIngestionEngine.getVertexAttributes(numericId);
     }
 }
