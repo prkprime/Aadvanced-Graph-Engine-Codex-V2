@@ -72,6 +72,17 @@ public class GraphIngestionEngineTest {
 
         List<GraphEdgeResponse> edges = engine.getEdges();
 
+        System.out.println("\n=== [returnsRowWiseEdgesFromEncodedStores] ===");
+        System.out.println("Graph Structure:");
+        System.out.println("  Mumbai --[road, high]--> Pune");
+        System.out.println("  Pune   --[rail, null]--> Solapur\n");
+        System.out.println("Edges Output:");
+        for (int i = 0; i < edges.size(); i++) {
+            GraphEdgeResponse edge = edges.get(i);
+            System.out.println("  - Edge " + i + ": " + edge.fromVertexId() + " -> " + edge.toVertexId() + " " + edge.relations());
+        }
+        System.out.println("==============================================\n");
+
         assertEquals(2, edges.size());
         assertEquals(new GraphEdgeResponse("Mumbai", "Pune", List.of("road", "high")), edges.get(0));
         assertEquals("Pune", edges.get(1).fromVertexId());
@@ -251,6 +262,16 @@ public class GraphIngestionEngineTest {
 
         java.util.Map<String, String> vertexDict = engine.getVertexDictionary();
 
+        System.out.println("\n=== [testGetVertexDictionaryOptimizationAndCorrectness] ===");
+        System.out.println("Graph Structure:");
+        System.out.println("  Mumbai (CityLabel) -> Pune (CityLabel)");
+        System.out.println("  Mumbai (CityLabel) -> Delhi (CapitalLabel)");
+        System.out.println("  (null)             -> Bangalore (TechLabel)");
+        System.out.println("  Kolkata (HeritageLabel) -> (null)\n");
+        System.out.println("Vertex Dictionary Output:");
+        vertexDict.forEach((k, v) -> System.out.println("  " + k + " => " + v));
+        System.out.println("============================================================\n");
+
         // 1. Verify correct sizes (skips nulls, maps each unique vertex exactly once)
         assertEquals(5, vertexDict.size());
 
@@ -293,6 +314,17 @@ public class GraphIngestionEngineTest {
         int numericId = engine.getGraphEngineContext().getIdContext().getBiDirectionalDictionary().getIdIfExists("V1");
         com.self.help.output.VertexAttributesResponse response = engine.getVertexAttributes(numericId);
 
+        System.out.println("\n=== [testGetVertexAttributesCorrectness] ===");
+        System.out.println("Graph Structure:");
+        System.out.println("  V1 (LabelV1) --[Attr1_V1, Attr1_V2]--> V2 (LabelV2)");
+        System.out.println("  V3 (LabelV3) --[Attr2_V3, Attr2_V1]--> V1 (LabelV1)");
+        System.out.println("  V1 (LabelV1) --[AttrDeleted, null]--> (null)");
+        System.out.println("  (null)       --[null, AttrDeleted2]--> V1 (LabelV1)");
+        System.out.println("  V1 (LabelV1) --[AttrSelf_From, AttrSelf_To]--> V1 (LabelV1)\n");
+        System.out.println("Vertex Attributes Output for V1 (LabelV1):");
+        response.attributes().forEach(a -> System.out.println("  - " + a));
+        System.out.println("=============================================\n");
+
         assertEquals("LabelV1", response.label());
         List<List<String>> expectedAttrs = List.of(
                 List.of("Attr1_V1"),
@@ -324,6 +356,16 @@ public class GraphIngestionEngineTest {
 
         int idV1 = engine.getGraphEngineContext().getIdContext().getBiDirectionalDictionary().getIdIfExists("V1");
         int idV5 = engine.getGraphEngineContext().getIdContext().getBiDirectionalDictionary().getIdIfExists("V5");
+
+        System.out.println("\n=== [testGetVertexLabelCorrectness] ===");
+        System.out.println("Graph Structure:");
+        System.out.println("  V1 (LabelV1) -> V2 (LabelV2)");
+        System.out.println("  V3 (LabelV3) -> V4 (LabelV4)");
+        System.out.println("  (null)       -> V5 (LabelV5)\n");
+        System.out.println("Vertex Labels Output:");
+        System.out.println("  V1 => " + engine.getVertexLabel(idV1));
+        System.out.println("  V5 => " + engine.getVertexLabel(idV5));
+        System.out.println("========================================\n");
 
         assertEquals("LabelV1", engine.getVertexLabel(idV1));
         assertEquals("LabelV5", engine.getVertexLabel(idV5));
