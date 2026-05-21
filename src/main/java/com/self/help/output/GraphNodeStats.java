@@ -9,8 +9,9 @@ package com.self.help.output;
  */
 public record GraphNodeStats(int outgoingEdgeCount, int incomingEdgeCount) implements java.io.Serializable {
     /**
-     * Returns the total edge count
-     * @return
+     * Returns the total edge count.
+     *
+     * @return the sum of outgoing and incoming edge counts
      */
     public int getTotalEdgeCount() {
         return outgoingEdgeCount + incomingEdgeCount;

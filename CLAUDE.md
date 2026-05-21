@@ -35,11 +35,12 @@ These are the primary Maven commands used to build, test, and run the engine:
 
 This codebase implements a high-performance, columnar-based graph ingestion engine. It translates tabular source data (e.g., from a columnar raw data store) into dense, dictionary-encoded numerical columns, complete with sidecars and inverted indices for fast lookup.
 
-- **`GraphMappingSchema`**: The unified, pair-based user-facing configuration that maps raw columns (`idPair`, `labelPair`, `attributePairs`, `relationColumns`) into node and edge structures. **Note: Legacy `MappingSpec`/`NodeSpec` intermediate layers have been fully eliminated.**
-- **`GraphMappingSchemaValidator`**: Checks that all mapped columns exist in the raw source, verify duplicate configurations, and handles intra-node and cross-node disjoint constraint checks.
-- **`GraphEngineContext`**: Manages all per-column contexts (`NodeSideContext` for FROM/TO nodes, `RelationColumnContext` for edge relations). Exposes shared dictionaries, integer stores, and deleted/tombstone tracking.
+- **`GraphMappingSpec`**: The unified, pair-based user-facing configuration that maps raw columns (`idPair`, `labelPair`, `nodeAttributes`, `relations`) into node and edge structures. **Note: Legacy `MappingSpec`/`NodeSpec`/`MappingSchema` intermediate layers have been fully eliminated.**
+- **`GraphMappingSchemaValidator`**: Checks that all mapped columns exist in the raw source, verifies duplicate configurations, and handles intra-node and cross-node disjoint constraint checks.
+- **`GraphEngineContext`**: Manages all property contexts (`NodePropertyPairContext` for node properties and attributes, `RelationPropertyContext` for edge relations). Exposes flat-mapped dictionaries, integer columnar stores, and deleted/tombstone tracking.
 - **`GraphIngestionEngine`**: Ingests source row identifiers by dictionary encoding, storing numerical mappings, and updating RoaringBitmap-backed inverted indexes.
-- **`ColumnContext`**: Holds the dense columnar structures (`BiDirectionalDictionary`, `IntegerColumnarStore`, `InvertedIndexColumn`, and raw data-cube column index) for one edge side variable.
+- **`NodePropertyPairContext`**: Shares one `BiDirectionalDictionary` across both FROM and TO sides while keeping side-specific `IntegerColumnarStore` and `InvertedIndexColumn` stores for node properties/attributes.
+- **`RelationPropertyContext`**: Manages `BiDirectionalDictionary`, `IntegerColumnarStore`, and `InvertedIndexColumn` for a single edge relation column.
 
 ---
 
@@ -51,10 +52,13 @@ This codebase implements a high-performance, columnar-based graph ingestion engi
   - `TO_DELETED` contains the internal indices of ingested rows where the `TO` vertex was null.
 - **Precomputed Column Read Masks**:
   - Mask bitmaps (`fromNullReadMask`, `toNullReadMask`) precompute which columnar columns are active for partial rows.
-  - The hot ingestion path uses `getIntIterator()` directly from these bitmaps to bypass branching or range checks during columnar population.
+  - During ingestion of a partial row, `ingestWithMask` checks if a column index is active using `readMask.contains(i)` to cleanly populate default nulls or real values.
 - **Edge Retrieval & Vertex Dict**:
   - `getEdges()` conditionally returns `null` for deleted node identifiers and nullifies their relations.
   - `getVertexDictionary()` ignores tombstoned row indices and skips null keys during decoding.
+  - `getResolvedVertexLabel(int numericId)` looks up the first valid non-deleted occurrence on either side using inverted indexes and tombstone bitmaps to resolve the display label.
+  - `getResolvedVertexId(int numericId)` performs a fast O(1) bounds-checked dictionary lookup to resolve the original string ID.
+  - `getVertexAttributes(int numericId)` merges valid `FROM` and `TO` occurrences in ingestion order, extracts their attribute sets in schema order, and returns a unified duplicate-filtered list of attribute lists.
 
 ---
 
@@ -70,3 +74,4 @@ This codebase implements a high-performance, columnar-based graph ingestion engi
 6. **No Dead Fields / Code**: Ensure all unused fields, legacy intermediate specs, and bridging logic (e.g., legacy `toMappingSpec()`) remain removed.
 7. **Documentation Integrity**: Maintain excellent Javadocs. Update comments and docstrings when changing code structure, but preserve unrelated existing comments intact.
 8. **Target Directory Exclusion**: Do not consider the `target` directory and its subdirectories for any kind of context, processing, or literally anything.
+9. **Documentation Sync**: Keep both `CLAUDE.md` and `GEMINI.md` in sync. Any updates to architecture, components, commands, conventions, or APIs must be reflected in both documents.

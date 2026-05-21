@@ -49,7 +49,7 @@ public record GraphMappingSpec(
                         .findFirst()
                         .orElseThrow(() -> new IllegalArgumentException("Attribute '" + name + "' not found in mapping schema"));
             }
-            case RELATION -> throw new IllegalArgumentException("RELATION target uses RelationSpec, not NodeAttributeSpec");
+            case RELATION -> throw new IllegalArgumentException("RELATION target uses RelationPropertyMappingSpec, not NodePropertyMappingSpec");
         };
     }
 
@@ -100,7 +100,7 @@ public record GraphMappingSpec(
     }
 
     /**
-     * Creates a new builder to fluently construct a GraphMappingSchema.
+     * Creates a new builder to fluently construct a GraphMappingSpec.
      *
      * @return fluent builder
      */
@@ -110,7 +110,7 @@ public record GraphMappingSpec(
     }
 
     /**
-     * Builder for GraphMappingSchema.
+     * Builder for GraphMappingSpec.
      */
     public static class Builder {
         private NodePropertyMappingSpec idPair;

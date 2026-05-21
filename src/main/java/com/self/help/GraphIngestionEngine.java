@@ -296,7 +296,7 @@ public class GraphIngestionEngine {
      * @return the resolved display label string, or null if id does not exist
      */
     @Nullable
-    public synchronized String getVertexLabel(int numericId) {
+    public synchronized String getResolvedVertexLabel(int numericId) {
         NodePropertyPairContext idContext = graphEngineContext.getIdContext();
         if (numericId < 0 || numericId >= idContext.getBiDirectionalDictionary().size()) {
             return null;
@@ -307,22 +307,41 @@ public class GraphIngestionEngine {
 
         // 1. Check from-side occurrences using getRowsForValueOrNull
         RoaringBitmap fromRows = idContext.getFromInvertedIndexColumn().getRowsForValueOrNull(numericId);
-        String label = resolveLabel(fromRows, labelContext.getFromIntegerColumnarStore(), labelDict);
+        String label = resolveLabel(fromRows, graphEngineContext.getFromDeleted(), labelContext.getFromIntegerColumnarStore(), labelDict);
         if (label != null) {
             return label;
         }
 
         // 2. Check to-side occurrences using getRowsForValueOrNull
         RoaringBitmap toRows = idContext.getToInvertedIndexColumn().getRowsForValueOrNull(numericId);
-        return resolveLabel(toRows, labelContext.getToIntegerColumnarStore(), labelDict);
+        return resolveLabel(toRows, graphEngineContext.getToDeleted(), labelContext.getToIntegerColumnarStore(), labelDict);
     }
+
+    /**
+     * Resolves and returns the string id for a given vertex numeric ID
+     * by looking up the first valid non-deleted occurrence in the ingested stores.
+     *
+     * @param numericId encoded integer id of the vertex
+     * @return the resolved display id string, or null if id does not exist
+     */
+    @Nullable
+    public synchronized String getResolvedVertexId(int numericId) {
+        NodePropertyPairContext idContext = graphEngineContext.getIdContext();
+        if (numericId < 0 || numericId >= idContext.getBiDirectionalDictionary().size()) {
+            return null;
+        }
+        return idContext.getBiDirectionalDictionary().getValue(numericId);
+    }
+
 
     private String resolveLabel(
             @Nullable RoaringBitmap rows,
+            @NotNull RoaringBitmap deleted,
             @NotNull IntegerColumnarStore labelStore,
             @NotNull BiDirectionalDictionary labelDict) {
         if (rows != null && !rows.isEmpty()) {
-            int rowId = rows.first();
+            RoaringBitmap active = RoaringBitmap.andNot(rows, deleted);
+            int rowId = !active.isEmpty() ? active.first() : rows.first();
             int encodedLabel = labelStore.getInt(rowId);
             return labelDict.getValue(encodedLabel);
         }
@@ -339,13 +358,15 @@ public class GraphIngestionEngine {
      */
     @Nullable
     public synchronized VertexAttributesResponse getVertexAttributes(int numericId) {
-        String label = getVertexLabel(numericId);
-        if (label == null) {
+        String resolvedId = getResolvedVertexId(numericId);
+        if(resolvedId == null)
             return null;
-        }
+        String resolvedLabel = getResolvedVertexLabel(numericId);
+        if(resolvedLabel == null)
+            return null;
 
         if (graphEngineContext.getAttributesContext().length == 0) {
-            return new VertexAttributesResponse(label, List.of());
+            return new VertexAttributesResponse(resolvedId, resolvedLabel, List.of());
         }
 
         NodePropertyPairContext idContext = graphEngineContext.getIdContext();
@@ -353,7 +374,7 @@ public class GraphIngestionEngine {
         RoaringBitmap activeTo = getActiveRows(idContext.getToInvertedIndexColumn().getRowsForValueOrNull(numericId), graphEngineContext.getToDeleted());
 
         if (activeFrom.isEmpty() && activeTo.isEmpty()) {
-            return new VertexAttributesResponse(label, List.of());
+            return new VertexAttributesResponse(resolvedId, resolvedLabel, List.of());
         }
 
         List<List<String>> uniqueAttributes = java.util.stream.Stream.concat(
@@ -363,7 +384,7 @@ public class GraphIngestionEngine {
         .distinct()
         .toList();
 
-        return new VertexAttributesResponse(label, uniqueAttributes);
+        return new VertexAttributesResponse(resolvedId, resolvedLabel, uniqueAttributes);
     }
 
     private RoaringBitmap getActiveRows(@Nullable RoaringBitmap rows, @NotNull RoaringBitmap deleted) {

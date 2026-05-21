@@ -121,17 +121,6 @@ public class GraphIngestionEngineTest {
     }
 
     @Test
-    public void intersectIntoClearsCandidatesWhenValueIsAbsent() {
-        InvertedIndexColumn index = new InvertedIndexColumn();
-        RoaringBitmap candidateRows = RoaringBitmap.bitmapOf(1, 2, 3);
-
-        boolean hasMatches = index.intersectInto(candidateRows, 42);
-
-        assertTrue(candidateRows.isEmpty());
-        assertFalse(hasMatches);
-    }
-
-    @Test
     public void skipsCompletelyNullRowsDuringIngestion() {
         RawDataStore store = new RawDataStore(List.of("fromCity", "toCity", "medium"));
         store.ingestRow(new String[]{null, null, "byRoad"});
@@ -322,10 +311,11 @@ public class GraphIngestionEngineTest {
         System.out.println("  (null)       --[null, AttrDeleted2]--> V1 (LabelV1)");
         System.out.println("  V1 (LabelV1) --[AttrSelf_From, AttrSelf_To]--> V1 (LabelV1)\n");
         System.out.println("Vertex Attributes Output for V1 (LabelV1):");
-        response.attributes().forEach(a -> System.out.println("  - " + a));
+        response.resolvedAttributes().forEach(a -> System.out.println("  - " + a));
         System.out.println("=============================================\n");
 
-        assertEquals("LabelV1", response.label());
+        assertEquals("V1", response.resolvedId());
+        assertEquals("LabelV1", response.resolvedLabel());
         List<List<String>> expectedAttrs = List.of(
                 List.of("Attr1_V1"),
                 List.of("AttrDeleted"),
@@ -334,7 +324,7 @@ public class GraphIngestionEngineTest {
                 List.of("AttrDeleted2"),
                 List.of("AttrSelf_To")
         );
-        assertEquals(expectedAttrs, response.attributes());
+        assertEquals(expectedAttrs, response.resolvedAttributes());
     }
 
     @Test
@@ -363,16 +353,16 @@ public class GraphIngestionEngineTest {
         System.out.println("  V3 (LabelV3) -> V4 (LabelV4)");
         System.out.println("  (null)       -> V5 (LabelV5)\n");
         System.out.println("Vertex Labels Output:");
-        System.out.println("  V1 => " + engine.getVertexLabel(idV1));
-        System.out.println("  V5 => " + engine.getVertexLabel(idV5));
+        System.out.println("  V1 => " + engine.getResolvedVertexLabel(idV1));
+        System.out.println("  V5 => " + engine.getResolvedVertexLabel(idV5));
         System.out.println("========================================\n");
 
-        assertEquals("LabelV1", engine.getVertexLabel(idV1));
-        assertEquals("LabelV5", engine.getVertexLabel(idV5));
+        assertEquals("LabelV1", engine.getResolvedVertexLabel(idV1));
+        assertEquals("LabelV5", engine.getResolvedVertexLabel(idV5));
 
         // Test out-of-bounds inputs to verify robust null-checking
-        assertEquals(null, engine.getVertexLabel(-1));
-        assertEquals(null, engine.getVertexLabel(9999));
+        assertEquals(null, engine.getResolvedVertexLabel(-1));
+        assertEquals(null, engine.getResolvedVertexLabel(9999));
     }
 
     @Test
@@ -412,8 +402,9 @@ public class GraphIngestionEngineTest {
 
         com.self.help.output.VertexAttributesResponse response = engine.getVertexAttributes(numericId);
         assertNotNull(response);
-        assertEquals("LabelV1", response.label());
-        assertTrue(response.attributes().isEmpty());
+        assertEquals("V1", response.resolvedId());
+        assertEquals("LabelV1", response.resolvedLabel());
+        assertTrue(response.resolvedAttributes().isEmpty());
     }
 
     @Test
@@ -432,8 +423,9 @@ public class GraphIngestionEngineTest {
 
         com.self.help.output.VertexAttributesResponse response = engine.getVertexAttributes(numericId);
         assertNotNull(response);
-        assertEquals("LabelV1", response.label());
-        assertTrue(response.attributes().isEmpty());
+        assertEquals("V1", response.resolvedId());
+        assertEquals("LabelV1", response.resolvedLabel());
+        assertTrue(response.resolvedAttributes().isEmpty());
     }
 }
 

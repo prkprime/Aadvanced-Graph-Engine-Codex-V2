@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * Spring Converter that automatically deserializes a URL-encoded JSON path variable
- * into a GraphMappingSchema instance.
+ * into a GraphMappingSpec instance.
  */
 @Component
 public class GraphMappingSchemaConverter implements Converter<String, GraphMappingSpec> {
@@ -28,7 +28,7 @@ public class GraphMappingSchemaConverter implements Converter<String, GraphMappi
             String decoded = URLDecoder.decode(source, StandardCharsets.UTF_8);
             return objectMapper.readValue(decoded, GraphMappingSpec.class);
         } catch (IOException | IllegalArgumentException e) {
-            throw new IllegalArgumentException("Failed to convert JSON string to GraphMappingSchema: " + e.getMessage(), e);
+            throw new IllegalArgumentException("Failed to convert JSON string to GraphMappingSpec: " + e.getMessage(), e);
         }
     }
 }

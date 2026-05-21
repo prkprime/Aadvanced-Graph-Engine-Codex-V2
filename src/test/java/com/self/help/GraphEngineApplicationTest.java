@@ -145,8 +145,9 @@ class GraphEngineApplicationTest {
         mockMvc.perform(get("/api/v1/graphs/default/vertices/" + numericId + "/attributes"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.label").value("Authentication Service"))
-                .andExpect(jsonPath("$.attributes", hasSize(1)))
-                .andExpect(jsonPath("$.attributes[0][0]").value("service"));
+                .andExpect(jsonPath("$.resolvedId").value("AUTH"))
+                .andExpect(jsonPath("$.resolvedLabel").value("Authentication Service"))
+                .andExpect(jsonPath("$.resolvedAttributes", hasSize(1)))
+                .andExpect(jsonPath("$.resolvedAttributes[0][0]").value("service"));
     }
 }
