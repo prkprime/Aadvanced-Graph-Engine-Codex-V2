@@ -27,8 +27,10 @@ High-performance, columnar-based graph ingestion engine implemented in Java 21 a
 ### Standards & Performance
 - **Java 21+**: Utilize modern Java features like Records and Pattern Matching.
 - **Lombok**: Extensively use `@Getter`, `@RequiredArgsConstructor`, etc., to minimize boilerplate.
+- **Refactoring & DRY**: When creating or modifying source code, proactively identify opportunities to extract common logic into reusable methods or components. Prioritize clean, deduplicated code.
 - **Performance First**: The ingestion path is optimized to avoid branching and object instantiation. Use `RoaringBitmap` for index-level operations.
 - **Nullability**: Annotate all public signatures with `@NotNull` or `@Nullable` (JetBrains annotations).
+- **Target Directory Exclusion**: Do not consider the `target` directory and its subdirectories for any kind of context, processing, or literally anything.
 
 ### Data Handling
 - **Partial Ingestion**: Rows with only one vertex (`FROM_ID` or `TO_ID` is null) are ingested as single vertices.

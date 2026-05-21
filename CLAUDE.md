@@ -62,9 +62,11 @@ This codebase implements a high-performance, columnar-based graph ingestion engi
 
 1. **Java Standards**: Target Java 21+ features.
 2. **Boilerplate Reduction**: Extensively leverage **Lombok** (`@Getter`, `@RequiredArgsConstructor`, `@AccessLevel`) and **Record** types to keep classes clean and lightweight.
-3. **Nullability Annotations**: Explicitly annotate signatures with JetBrains annotations:
+3. **Refactoring & DRY**: When creating or modifying source code, proactively identify opportunities to extract common logic into reusable methods or components. Prioritize clean, deduplicated code.
+4. **Nullability Annotations**: Explicitly annotate signatures with JetBrains annotations:
    - `@NotNull` for non-nullable params, methods, fields.
    - `@Nullable` for optional values (e.g. `labelPair` mappings).
-4. **Performance**: Avoid branching or dynamic object instantiation in the hot ingestion path. Prefer RoaringBitmap operations for fast, index-level matching.
-5. **No Dead Fields / Code**: Ensure all unused fields, legacy intermediate specs, and bridging logic (e.g., legacy `toMappingSpec()`) remain removed.
-6. **Documentation Integrity**: Maintain excellent Javadocs. Update comments and docstrings when changing code structure, but preserve unrelated existing comments intact.
+5. **Performance**: Avoid branching or dynamic object instantiation in the hot ingestion path. Prefer RoaringBitmap operations for fast, index-level matching.
+6. **No Dead Fields / Code**: Ensure all unused fields, legacy intermediate specs, and bridging logic (e.g., legacy `toMappingSpec()`) remain removed.
+7. **Documentation Integrity**: Maintain excellent Javadocs. Update comments and docstrings when changing code structure, but preserve unrelated existing comments intact.
+8. **Target Directory Exclusion**: Do not consider the `target` directory and its subdirectories for any kind of context, processing, or literally anything.
