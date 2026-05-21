@@ -223,4 +223,47 @@ public class GraphIngestionEngineTest {
         assertEquals("Pune", edges.get(0).toVertexId());
         assertEquals(List.of("byRoad"), edges.get(0).relations());
     }
+
+    @Test
+    public void testGetVertexDictionaryOptimizationAndCorrectness() {
+        RawDataStore store = new RawDataStore(List.of("fromCity", "toCity", "fromLabel", "toLabel"));
+        // Standard edge with matching labels
+        store.ingestRow(new String[]{"Mumbai", "Pune", "CityLabel", "CityLabel"});
+        // Edge with duplicate vertices to test first-seen preservation
+        store.ingestRow(new String[]{"Mumbai", "Delhi", "CityLabel", "CapitalLabel"});
+        // Partial row with from deleted (null)
+        store.ingestRow(new String[]{null, "Bangalore", null, "TechLabel"});
+        // Partial row with to deleted (null)
+        store.ingestRow(new String[]{"Kolkata", null, "HeritageLabel", null});
+
+        GraphMappingSpec spec = GraphMappingSpec.builder()
+                .idPair("fromCity", "toCity")
+                .labelPair("fromLabel", "toLabel")
+                .build();
+        GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
+
+        engine.ingest(0);
+        engine.ingest(1);
+        engine.ingest(2);
+        engine.ingest(3);
+
+        java.util.Map<String, String> vertexDict = engine.getVertexDictionary();
+
+        // 1. Verify correct sizes (skips nulls, maps each unique vertex exactly once)
+        assertEquals(5, vertexDict.size());
+
+        // 2. Verify all keys mapped to their correct labels
+        assertEquals("CityLabel", vertexDict.get("Mumbai"));
+        assertEquals("CityLabel", vertexDict.get("Pune"));
+        assertEquals("CapitalLabel", vertexDict.get("Delhi"));
+        assertEquals("TechLabel", vertexDict.get("Bangalore"));
+        assertEquals("HeritageLabel", vertexDict.get("Kolkata"));
+
+        // 3. Verify exact first-seen insertion order
+        // Order seen: Mumbai (row 0 from) -> Pune (row 0 to) -> Delhi (row 1 to) -> Bangalore (row 2 to) -> Kolkata (row 3 from)
+        List<String> expectedOrder = List.of("Mumbai", "Pune", "Delhi", "Bangalore", "Kolkata");
+        List<String> actualOrder = new java.util.ArrayList<>(vertexDict.keySet());
+        assertEquals(expectedOrder, actualOrder);
+    }
 }
+

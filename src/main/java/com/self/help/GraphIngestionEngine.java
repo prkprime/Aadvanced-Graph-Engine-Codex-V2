@@ -152,33 +152,50 @@ public class GraphIngestionEngine {
      * @return vertex id to vertex label mapping in first-seen order
      */
     public synchronized Map<String, String> getVertexDictionary() {
-        Map<String, String> result = new LinkedHashMap<>();
         NodePropertyPairContext idContext = graphEngineContext.getIdContext();
         NodePropertyPairContext labelContext = graphEngineContext.getLabelContext();
+        BiDirectionalDictionary idDict = idContext.getBiDirectionalDictionary();
+        BiDirectionalDictionary labelDict = labelContext.getBiDirectionalDictionary();
+
+        int numIds = idDict.size();
+        int[] idToLabel = new int[numIds];
+        java.util.Arrays.fill(idToLabel, -1);
 
         int rowCount = getIngestedRowCount();
+        RoaringBitmap fromDeleted = graphEngineContext.getFromDeleted();
+        RoaringBitmap toDeleted = graphEngineContext.getToDeleted();
+
+        IntegerColumnarStore fromIdStore = idContext.getFromIntegerColumnarStore();
+        IntegerColumnarStore fromLabelStore = labelContext.getFromIntegerColumnarStore();
+        IntegerColumnarStore toIdStore = idContext.getToIntegerColumnarStore();
+        IntegerColumnarStore toLabelStore = labelContext.getToIntegerColumnarStore();
+
         for (int rowId = 0; rowId < rowCount; rowId++) {
-            if (!graphEngineContext.getFromDeleted().contains(rowId)) {
-                addDecodedVertex(
-                        result,
-                        idContext.getFromIntegerColumnarStore(),
-                        labelContext.getFromIntegerColumnarStore(),
-                        idContext.getBiDirectionalDictionary(),
-                        labelContext.getBiDirectionalDictionary(),
-                        rowId);
-            }
-            if (!graphEngineContext.getToDeleted().contains(rowId)) {
-                addDecodedVertex(
-                        result,
-                        idContext.getToIntegerColumnarStore(),
-                        labelContext.getToIntegerColumnarStore(),
-                        idContext.getBiDirectionalDictionary(),
-                        labelContext.getBiDirectionalDictionary(),
-                        rowId);
+            mapLabelIfAbsent(fromDeleted, rowId, fromIdStore, numIds, idToLabel, fromLabelStore);
+            mapLabelIfAbsent(toDeleted, rowId, toIdStore, numIds, idToLabel, toLabelStore);
+        }
+
+        Map<String, String> result = new LinkedHashMap<>();
+        for (int encodedId = 0; encodedId < numIds; encodedId++) {
+            String nodeId = idDict.getValue(encodedId);
+            if (nodeId != null) {
+                int encodedLabel = idToLabel[encodedId];
+                if (encodedLabel != -1) {
+                    result.put(nodeId, labelDict.getValue(encodedLabel));
+                }
             }
         }
 
         return result;
+    }
+
+    private static void mapLabelIfAbsent(RoaringBitmap deletedBitMap, int rowId, IntegerColumnarStore idStore, int numIds, int[] idToLabel, IntegerColumnarStore labelStore) {
+        if (!deletedBitMap.contains(rowId)) {
+            int encodedId = idStore.getInt(rowId);
+            if (encodedId >= 0 && encodedId < numIds && idToLabel[encodedId] == -1) {
+                idToLabel[encodedId] = labelStore.getInt(rowId);
+            }
+        }
     }
 
     /**
@@ -215,19 +232,7 @@ public class GraphIngestionEngine {
         return result;
     }
 
-    private void addDecodedVertex(
-            Map<String, String> result,
-            IntegerColumnarStore idStore,
-            IntegerColumnarStore labelStore,
-            BiDirectionalDictionary idDictionary,
-            BiDirectionalDictionary labelDictionary,
-            int rowId) {
-        String nodeId = idDictionary.getValue(idStore.getInt(rowId));
-        if (nodeId == null) {
-            return;
-        }
-        result.putIfAbsent(nodeId, labelDictionary.getValue(labelStore.getInt(rowId)));
-    }
+
 
     /**
      * Resolves and returns the BiDirectionalDictionary for a given mapping target type and name
