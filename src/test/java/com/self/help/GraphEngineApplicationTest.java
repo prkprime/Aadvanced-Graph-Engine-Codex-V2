@@ -48,40 +48,45 @@ class GraphEngineApplicationTest {
 
     @Test
     void exposesVerticesEndpoint() throws Exception {
+        // Numeric IDs are assigned in first-seen ingestion order:
+        // AUTH=0, USER_DB=1, TOKEN_CACHE=2, API=3, ORDER=4, ..., ANALYTICS=15
         mockMvc.perform(get("/api/v1/graphs/default/vertices"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$", aMapWithSize(16)))
-                .andExpect(jsonPath("$['AUTH']").value("Authentication Service"))
-                .andExpect(jsonPath("$['USER_DB']").value("User Database"))
-                .andExpect(jsonPath("$['ANALYTICS']").value("Analytics Pipeline"));
+                .andExpect(jsonPath("$['0']").value("Authentication Service"))   // AUTH
+                .andExpect(jsonPath("$['1']").value("User Database"))             // USER_DB
+                .andExpect(jsonPath("$['15']").value("Analytics Pipeline"));     // ANALYTICS
     }
 
     @Test
     void exposesEdgesEndpoint() throws Exception {
+        // Row 0: AUTH(0) -> USER_DB(1), Row 14: API(3) -> ANALYTICS(15)
         mockMvc.perform(get("/api/v1/graphs/default/edges"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$", hasSize(StartupGraphDataConfiguration.startupRowCount())))
-                .andExpect(jsonPath("$[0].fromVertexId").value("AUTH"))
-                .andExpect(jsonPath("$[0].toVertexId").value("USER_DB"))
+                .andExpect(jsonPath("$[0].fromVertexId").value(0))    // AUTH
+                .andExpect(jsonPath("$[0].toVertexId").value(1))      // USER_DB
                 .andExpect(jsonPath("$[0].relations[0]").value("reads"))
                 .andExpect(jsonPath("$[0].relations[1]").value("high"))
-                .andExpect(jsonPath("$[14].fromVertexId").value("API"))
-                .andExpect(jsonPath("$[14].toVertexId").value("ANALYTICS"))
+                .andExpect(jsonPath("$[14].fromVertexId").value(3))   // API
+                .andExpect(jsonPath("$[14].toVertexId").value(15))    // ANALYTICS
                 .andExpect(jsonPath("$[14].relations[0]").value("streams"))
                 .andExpect(jsonPath("$[14].relations[1]").value("medium"));
     }
 
     @Test
     void exposesDictionaryEndpoint() throws Exception {
+        // Numeric IDs are assigned in first-seen ingestion order:
+        // AUTH=0, USER_DB=1, TOKEN_CACHE=2, API=3, ORDER=4, ..., ANALYTICS=15
         mockMvc.perform(get("/api/v1/graphs/default/dictionary"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$", aMapWithSize(16)))
-                .andExpect(jsonPath("$['AUTH']").value("Authentication Service"))
-                .andExpect(jsonPath("$['USER_DB']").value("User Database"))
-                .andExpect(jsonPath("$['ANALYTICS']").value("Analytics Pipeline"));
+                .andExpect(jsonPath("$['0']").value("Authentication Service"))  // AUTH
+                .andExpect(jsonPath("$['1']").value("User Database"))            // USER_DB
+                .andExpect(jsonPath("$['15']").value("Analytics Pipeline"));    // ANALYTICS
     }
 
     private GraphMappingSpec buildTestSchema() {

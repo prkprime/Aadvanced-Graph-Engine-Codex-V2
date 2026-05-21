@@ -33,14 +33,15 @@ public class GraphQueryController {
     /**
      * Returns the vertices for a graph.
      * <p>
-     * The response is a dictionary-style view of vertex identifiers and their
-     * display labels.
+     * The response is a dictionary-style view mapping each vertex's compact numeric
+     * id (assigned by the internal {@code BiDirectionalDictionary} during ingestion)
+     * to its display label.
      *
      * @param graphId logical graph identifier supplied in the URL
-     * @return vertex id to vertex label mapping
+     * @return numeric vertex id to vertex label mapping
      */
     @GetMapping("/api/v1/graphs/{graphId}/vertices")
-    public Map<String, String> getVertices(@PathVariable String graphId) {
+    public Map<Integer, String> getVertices(@PathVariable String graphId) {
         return graphIngestionEngine.getVertexDictionary();
     }
 
@@ -61,24 +62,25 @@ public class GraphQueryController {
     /**
      * Returns the vertex dictionary used by UI renderers.
      * <p>
-     * The dictionary is the stable mapping from vertex id to vertex label. The
-     * UI can use this response to hydrate graph payloads that carry compact
-     * vertex identifiers, without requiring each edge response to repeat display
-     * labels.
+     * The dictionary maps each vertex's compact numeric id to its display label.
+     * The UI loads this once as a lookup table and resolves edge endpoints
+     * ({@code fromVertexId} / {@code toVertexId} integers from the edge API)
+     * to human-readable labels without requiring labels to be repeated in every
+     * edge payload.
      * <p>
      * Intended response shape:
      * <pre>
      * {
-     *   "AUTH": "Authentication Service",
-     *   "USER_DB": "User Database"
+     *   "0": "Authentication Service",
+     *   "1": "User Database"
      * }
      * </pre>
      *
      * @param graphId logical graph identifier supplied in the URL
-     * @return vertex id to vertex label mapping
+     * @return numeric vertex id to vertex label mapping
      */
     @GetMapping("/api/v1/graphs/{graphId}/dictionary")
-    public Map<String, String> getVertexIdToLabelMap(@PathVariable String graphId) {
+    public Map<Integer, String> getVertexIdToLabelMap(@PathVariable String graphId) {
         return graphIngestionEngine.getVertexDictionary();
     }
 

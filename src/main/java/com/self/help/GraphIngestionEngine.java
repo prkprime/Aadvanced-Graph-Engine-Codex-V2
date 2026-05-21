@@ -145,14 +145,17 @@ public class GraphIngestionEngine {
 
     /**
      * Builds a vertex dictionary from the encoded graph stores.
-     * The returned map is keyed by vertex id and contains the matching vertex
-     * label as the value. The traversal reads the row-aligned integer stores and
-     * decodes values through the graph dictionaries instead of scanning the raw
-     * input data store.
+     * The returned map is keyed by the compact numeric vertex id (the integer
+     * assigned by the {@link BiDirectionalDictionary} during ingestion) and
+     * maps to the display label. The traversal reads the row-aligned integer
+     * stores rather than scanning the raw input data store.
      *
-     * @return vertex id to vertex label mapping in first-seen order
+     * <p>The numeric id is the stable primary key exposed to the UI. To resolve
+     * the original source string for a numeric id, use {@link #getSourceId(int)}.
+     *
+     * @return numeric vertex id to vertex label mapping in dictionary-assignment order
      */
-    public synchronized Map<String, String> getVertexDictionary() {
+    public synchronized Map<Integer, String> getVertexDictionary() {
         NodePropertyPairContext idContext = graphEngineContext.getIdContext();
         NodePropertyPairContext labelContext = graphEngineContext.getLabelContext();
         BiDirectionalDictionary idDict = idContext.getBiDirectionalDictionary();
@@ -176,14 +179,11 @@ public class GraphIngestionEngine {
             mapLabelIfAbsent(toDeleted, rowId, toIdStore, numIds, idToLabel, toLabelStore);
         }
 
-        Map<String, String> result = new LinkedHashMap<>();
+        Map<Integer, String> result = new LinkedHashMap<>();
         for (int encodedId = 0; encodedId < numIds; encodedId++) {
-            String nodeId = idDict.getValue(encodedId);
-            if (nodeId != null) {
-                int encodedLabel = idToLabel[encodedId];
-                if (encodedLabel != -1) {
-                    result.put(nodeId, labelDict.getValue(encodedLabel));
-                }
+            int encodedLabel = idToLabel[encodedId];
+            if (encodedLabel != -1) {
+                result.put(encodedId, labelDict.getValue(encodedLabel));
             }
         }
 
@@ -210,13 +210,12 @@ public class GraphIngestionEngine {
         int rowCount = getIngestedRowCount();
         List<GraphEdgeResponse> edges = new ArrayList<>(rowCount);
         NodePropertyPairContext idContext = graphEngineContext.getIdContext();
-        BiDirectionalDictionary sharedIdDict = idContext.getBiDirectionalDictionary();
 
         for (int rowId = 0; rowId < rowCount; rowId++) {
-            String fromVertexId = graphEngineContext.getFromDeleted().contains(rowId) ? null
-                    : sharedIdDict.getValue(idContext.getFromIntegerColumnarStore().getInt(rowId));
-            String toVertexId = graphEngineContext.getToDeleted().contains(rowId) ? null
-                    : sharedIdDict.getValue(idContext.getToIntegerColumnarStore().getInt(rowId));
+            Integer fromVertexId = graphEngineContext.getFromDeleted().contains(rowId) ? null
+                    : idContext.getFromIntegerColumnarStore().getInt(rowId);
+            Integer toVertexId = graphEngineContext.getToDeleted().contains(rowId) ? null
+                    : idContext.getToIntegerColumnarStore().getInt(rowId);
             edges.add(new GraphEdgeResponse(fromVertexId, toVertexId, decodeRelationValues(rowId)));
         }
 
@@ -318,19 +317,33 @@ public class GraphIngestionEngine {
     }
 
     /**
-     * Resolves and returns the string id for a given vertex numeric ID
-     * by looking up the first valid non-deleted occurrence in the ingested stores.
+     * Resolves the compact numeric vertex id back to its original source string.
+     * Performs an O(1) bounds-checked dictionary lookup.
      *
-     * @param numericId encoded integer id of the vertex
-     * @return the resolved display id string, or null if id does not exist
+     * @param numericId compact integer id assigned by the dictionary during ingestion
+     * @return the original source string that was ingested, or {@code null} if the id is out of range
      */
     @Nullable
-    public synchronized String getResolvedVertexId(int numericId) {
+    public synchronized String getSourceId(int numericId) {
         NodePropertyPairContext idContext = graphEngineContext.getIdContext();
         if (numericId < 0 || numericId >= idContext.getBiDirectionalDictionary().size()) {
             return null;
         }
         return idContext.getBiDirectionalDictionary().getValue(numericId);
+    }
+
+    /**
+     * Resolves a source string back to its compact numeric vertex id.
+     * Performs a non-mutating dictionary lookup — the source string must have been
+     * ingested previously, otherwise {@code null} is returned.
+     *
+     * @param sourceId original source string to look up
+     * @return compact numeric vertex id, or {@code null} if the source string was never ingested
+     */
+    @Nullable
+    public synchronized Integer getNumericIdBySourceId(@NotNull String sourceId) {
+        int id = graphEngineContext.getIdContext().getBiDirectionalDictionary().getIdIfExists(sourceId);
+        return id == -1 ? null : id;
     }
 
 
@@ -358,7 +371,7 @@ public class GraphIngestionEngine {
      */
     @Nullable
     public synchronized VertexAttributesResponse getVertexAttributes(int numericId) {
-        String resolvedId = getResolvedVertexId(numericId);
+        String resolvedId = getSourceId(numericId);
         if(resolvedId == null)
             return null;
         String resolvedLabel = getResolvedVertexLabel(numericId);

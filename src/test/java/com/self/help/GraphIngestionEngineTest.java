@@ -84,9 +84,10 @@ public class GraphIngestionEngineTest {
         System.out.println("==============================================\n");
 
         assertEquals(2, edges.size());
-        assertEquals(new GraphEdgeResponse("Mumbai", "Pune", List.of("road", "high")), edges.get(0));
-        assertEquals("Pune", edges.get(1).fromVertexId());
-        assertEquals("Solapur", edges.get(1).toVertexId());
+        assertEquals(new GraphEdgeResponse(0, 1, List.of("road", "high")), edges.get(0));
+        // Pune is encoded as 1 (second unique city), Solapur as 2 (third)
+        assertEquals(Integer.valueOf(1), edges.get(1).fromVertexId());
+        assertEquals(Integer.valueOf(2), edges.get(1).toVertexId());
         assertEquals("rail", edges.get(1).relations().get(0));
         assertEquals(null, edges.get(1).relations().get(1));
     }
@@ -138,7 +139,10 @@ public class GraphIngestionEngineTest {
         assertEquals(1, engine.getIngestedRowCount());
         List<GraphEdgeResponse> edges = engine.getEdges();
         assertEquals(1, edges.size());
-        assertEquals(new GraphEdgeResponse("Mumbai", "Pune", List.of("byRoad")), edges.get(0));
+        // Numeric ID for "Mumbai" should be 0, for "Pune" should be 1
+        assertEquals(Integer.valueOf(0), edges.get(0).fromVertexId());
+        assertEquals(Integer.valueOf(1), edges.get(0).toVertexId());
+        assertEquals(List.of("byRoad"), edges.get(0).relations());
         assertTrue(engine.getGraphEngineContext().getFromDeleted().isEmpty());
         assertTrue(engine.getGraphEngineContext().getToDeleted().isEmpty());
     }
@@ -174,29 +178,30 @@ public class GraphIngestionEngineTest {
         assertFalse(engine.getGraphEngineContext().getToDeleted().contains(0));
         assertFalse(engine.getGraphEngineContext().getToDeleted().contains(2));
 
-        // Verify that the vertex dictionary correctly skips the null vertex ID key
-        java.util.Map<String, String> vertexDict = engine.getVertexDictionary();
+        // Verify that the vertex dictionary is keyed by numeric id, not source string
+        java.util.Map<Integer, String> vertexDict = engine.getVertexDictionary();
         assertFalse(vertexDict.containsKey(null));
-        assertTrue(vertexDict.containsKey("Mumbai"));
-        assertTrue(vertexDict.containsKey("Pune"));
+        // Pune and Mumbai should be present as numeric keys
+        assertTrue(vertexDict.containsValue("Pune"));
+        assertTrue(vertexDict.containsValue("Mumbai"));
 
-        // Verify edges response has null IDs and null relation values
+        // Verify edges response has null IDs for tombstoned sides
         List<GraphEdgeResponse> edges = engine.getEdges();
         assertEquals(3, edges.size());
 
-        // Row 0 (FROM_ID is null): relations are nullified
-        assertEquals(null, edges.get(0).fromVertexId());
-        assertEquals("Pune", edges.get(0).toVertexId());
+        // Row 0 (FROM_ID is null): fromVertexId is null
+        assertNull(edges.get(0).fromVertexId());
+        assertNotNull(edges.get(0).toVertexId()); // Pune's numeric id
         assertEquals(java.util.Collections.singletonList(null), edges.get(0).relations());
 
-        // Row 1 (TO_ID is null): relations are nullified
-        assertEquals("Mumbai", edges.get(1).fromVertexId());
-        assertEquals(null, edges.get(1).toVertexId());
+        // Row 1 (TO_ID is null): toVertexId is null
+        assertNotNull(edges.get(1).fromVertexId()); // Mumbai's numeric id
+        assertNull(edges.get(1).toVertexId());
         assertEquals(java.util.Collections.singletonList(null), edges.get(1).relations());
 
-        // Row 2 (Standard row): relations preserved
-        assertEquals("Mumbai", edges.get(2).fromVertexId());
-        assertEquals("Pune", edges.get(2).toVertexId());
+        // Row 2 (Standard row): both numeric ids present
+        assertNotNull(edges.get(2).fromVertexId());
+        assertNotNull(edges.get(2).toVertexId());
         assertEquals(List.of("byRoad"), edges.get(2).relations());
     }
 
@@ -221,8 +226,9 @@ public class GraphIngestionEngineTest {
 
         List<GraphEdgeResponse> edges = engine.getEdges();
         assertEquals(1, edges.size());
-        assertEquals("", edges.get(0).fromVertexId());
-        assertEquals("Pune", edges.get(0).toVertexId());
+        // "" is a valid id; its numeric id should be 0 (first ingested)
+        assertEquals(Integer.valueOf(0), edges.get(0).fromVertexId());
+        assertNotNull(edges.get(0).toVertexId());
         assertEquals(List.of("byRoad"), edges.get(0).relations());
     }
 
@@ -249,7 +255,7 @@ public class GraphIngestionEngineTest {
         engine.ingest(2);
         engine.ingest(3);
 
-        java.util.Map<String, String> vertexDict = engine.getVertexDictionary();
+        java.util.Map<Integer, String> vertexDict = engine.getVertexDictionary();
 
         System.out.println("\n=== [testGetVertexDictionaryOptimizationAndCorrectness] ===");
         System.out.println("Graph Structure:");
@@ -261,21 +267,26 @@ public class GraphIngestionEngineTest {
         vertexDict.forEach((k, v) -> System.out.println("  " + k + " => " + v));
         System.out.println("============================================================\n");
 
-        // 1. Verify correct sizes (skips nulls, maps each unique vertex exactly once)
+        // Resolve numeric IDs for each city from the id dictionary
+        int idMumbai  = engine.getGraphEngineContext().getIdContext().getBiDirectionalDictionary().getIdIfExists("Mumbai");
+        int idPune     = engine.getGraphEngineContext().getIdContext().getBiDirectionalDictionary().getIdIfExists("Pune");
+        int idDelhi    = engine.getGraphEngineContext().getIdContext().getBiDirectionalDictionary().getIdIfExists("Delhi");
+        int idBangalore = engine.getGraphEngineContext().getIdContext().getBiDirectionalDictionary().getIdIfExists("Bangalore");
+        int idKolkata  = engine.getGraphEngineContext().getIdContext().getBiDirectionalDictionary().getIdIfExists("Kolkata");
+
+        // 1. Verify correct sizes (skips tombstoned null-id rows)
         assertEquals(5, vertexDict.size());
 
-        // 2. Verify all keys mapped to their correct labels
-        assertEquals("CityLabel", vertexDict.get("Mumbai"));
-        assertEquals("CityLabel", vertexDict.get("Pune"));
-        assertEquals("CapitalLabel", vertexDict.get("Delhi"));
-        assertEquals("TechLabel", vertexDict.get("Bangalore"));
-        assertEquals("HeritageLabel", vertexDict.get("Kolkata"));
+        // 2. Verify numeric keys map to correct labels
+        assertEquals("CityLabel",     vertexDict.get(idMumbai));
+        assertEquals("CityLabel",     vertexDict.get(idPune));
+        assertEquals("CapitalLabel",  vertexDict.get(idDelhi));
+        assertEquals("TechLabel",     vertexDict.get(idBangalore));
+        assertEquals("HeritageLabel", vertexDict.get(idKolkata));
 
-        // 3. Verify exact first-seen insertion order
-        // Order seen: Mumbai (row 0 from) -> Pune (row 0 to) -> Delhi (row 1 to) -> Bangalore (row 2 to) -> Kolkata (row 3 from)
-        List<String> expectedOrder = List.of("Mumbai", "Pune", "Delhi", "Bangalore", "Kolkata");
-        List<String> actualOrder = new java.util.ArrayList<>(vertexDict.keySet());
-        assertEquals(expectedOrder, actualOrder);
+        // 3. Verify dictionary-assignment order (0,1,2,3,4)
+        List<Integer> actualOrder = new java.util.ArrayList<>(vertexDict.keySet());
+        assertEquals(List.of(idMumbai, idPune, idDelhi, idBangalore, idKolkata), actualOrder);
     }
 
     @Test

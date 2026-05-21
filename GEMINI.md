@@ -5,7 +5,7 @@ High-performance, columnar-based graph ingestion engine implemented in Java 21 a
 ## 🏗️ Architecture & Core Components
 
 - **`GraphMappingSpec`**: A unified, pair-based record that defines how raw source columns map to node properties (ID, Label, Attributes) and edge relations.
-- **`GraphIngestionEngine`**: The central coordinator for data ingestion. It handles dictionary encoding, numerical storage, index updates, and manages partial row ingestion. It also exposes APIs for edge projections, vertex dictionary extraction, display label/ID resolution, and vertex attribute lookups.
+- **`GraphIngestionEngine`**: The central coordinator for data ingestion. It handles dictionary encoding, numerical storage, index updates, and manages partial row ingestion. It also exposes APIs for edge projections (emitting compact numeric vertex IDs), vertex dictionary extraction (numeric ID → label), source ID resolution, and vertex attribute lookups.
 - **`GraphEngineContext`**: Manages all property contexts (`NodePropertyPairContext` for node properties and attributes, `RelationPropertyContext` for edge relations). Exposes flat-mapped dictionaries, integer columnar stores, and tombstone tracking.
 - **Property Contexts**:
   - `NodePropertyPairContext`: Shares one `BiDirectionalDictionary` across both FROM and TO sides while keeping side-specific `IntegerColumnarStore` and `InvertedIndexColumn` stores for node properties/attributes.
@@ -43,11 +43,13 @@ High-performance, columnar-based graph ingestion engine implemented in Java 21 a
 - **Precomputed Column Read Masks**:
   - Mask bitmaps (`fromNullReadMask`, `toNullReadMask`) precompute which columnar columns are active for partial rows.
   - During ingestion of a partial row, `ingestWithMask` checks if a column index is active using `readMask.contains(i)` to cleanly populate default nulls or real values.
-- **Edge Retrieval & Vertex Dict**:
-  - `getEdges()` conditionally returns `null` for deleted node identifiers and nullifies their relations.
-  - `getVertexDictionary()` ignores tombstoned row indices and skips null keys during decoding.
+- **Numeric Vertex ID as Primary Key**:
+  - The compact `int` assigned by `BiDirectionalDictionary` during ingestion is the **primary vertex identifier** exposed to the UI. The original source string is demoted to a secondary "source ID".
+  - `getEdges()` returns `List<GraphEdgeResponse>` where `fromVertexId` and `toVertexId` are `@Nullable Integer` (the dictionary-assigned compact int), not decoded source strings. `null` indicates a tombstoned side.
+  - `getVertexDictionary()` returns `Map<Integer, String>` mapping each numeric vertex ID to its display label. Tombstoned (null-ID) rows are excluded.
+  - `getSourceId(int numericId)` performs an O(1) bounds-checked dictionary lookup to resolve the compact numeric ID back to the original source string.
+  - `getNumericIdBySourceId(String sourceId)` performs a non-mutating reverse lookup: source string → compact numeric ID. Returns `null` if the source string was never ingested.
   - `getResolvedVertexLabel(int numericId)` looks up the first valid non-deleted occurrence on either side using inverted indexes and tombstone bitmaps to resolve the display label.
-  - `getResolvedVertexId(int numericId)` performs a fast O(1) bounds-checked dictionary lookup to resolve the original string ID.
   - `getVertexAttributes(int numericId)` merges valid `FROM` and `TO` occurrences in ingestion order, extracts their attribute sets in schema order, and returns a unified duplicate-filtered list of attribute lists.
 - **Mapping Logic**: Intermediate legacy mapping specs have been eliminated; all configuration must use the unified `GraphMappingSpec`.
 
