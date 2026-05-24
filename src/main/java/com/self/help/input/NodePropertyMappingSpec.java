@@ -13,6 +13,7 @@ public record NodePropertyMappingSpec(
         @NotNull String toColumnName
 ) implements java.io.Serializable {
     public NodePropertyMappingSpec {
+        Objects.requireNonNull(attributeName, "attributeName");
         Objects.requireNonNull(fromColumnName, "fromColumnName");
         Objects.requireNonNull(toColumnName, "toColumnName");
     }

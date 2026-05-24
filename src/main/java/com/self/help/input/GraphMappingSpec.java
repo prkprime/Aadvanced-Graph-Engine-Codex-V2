@@ -31,7 +31,7 @@ public record GraphMappingSpec(
      * requested but no explicit labelPair is configured, it falls back to the idPair.
      *
      * @param targetType the target type (ID, LABEL, or ATTRIBUTE)
-     * @param name the name of the attribute (ignored for ID and LABEL)
+     * @param name       the name of the attribute (ignored for ID and LABEL)
      * @return the associated node attribute mapping
      * @throws IllegalArgumentException if targetType is RELATION or if name is not found
      */
@@ -49,7 +49,8 @@ public record GraphMappingSpec(
                         .findFirst()
                         .orElseThrow(() -> new IllegalArgumentException("Attribute '" + name + "' not found in mapping schema"));
             }
-            case RELATION -> throw new IllegalArgumentException("RELATION target uses RelationPropertyMappingSpec, not NodePropertyMappingSpec");
+            case RELATION ->
+                    throw new IllegalArgumentException("RELATION target uses RelationPropertyMappingSpec, not NodePropertyMappingSpec");
         };
     }
 
@@ -118,6 +119,11 @@ public record GraphMappingSpec(
         private final List<NodePropertyMappingSpec> nodeAttributes = new ArrayList<>();
         private final List<RelationPropertyMappingSpec> relations = new ArrayList<>();
 
+        public Builder idPair(@NotNull String idPairAttributeName, @NotNull String fromColumnName, @NotNull String toColumnName) {
+            this.idPair = new NodePropertyMappingSpec(idPairAttributeName, fromColumnName, toColumnName);
+            return this;
+        }
+
         public Builder idPair(@NotNull String fromColumnName, @NotNull String toColumnName) {
             this.idPair = new NodePropertyMappingSpec("idPair", fromColumnName, toColumnName);
             return this;
@@ -125,6 +131,11 @@ public record GraphMappingSpec(
 
         public Builder idPair(@NotNull NodePropertyMappingSpec idPair) {
             this.idPair = Objects.requireNonNull(idPair, "idPair");
+            return this;
+        }
+
+        public Builder labelPair(@NotNull String labelPairAttributeName, @NotNull String fromColumnName, @NotNull String toColumnName) {
+            this.labelPair = new NodePropertyMappingSpec(labelPairAttributeName, fromColumnName, toColumnName);
             return this;
         }
 

@@ -29,6 +29,11 @@ public class GraphEngineContext {
     private final RawDataStore dataCube;
 
     /**
+     * Active graph mapping configuration schema.
+     */
+    private final GraphMappingSpec mappingSpec;
+
+    /**
      * Context for the mapped node id pair.
      */
     private final NodePropertyPairContext idContext;
@@ -83,6 +88,7 @@ public class GraphEngineContext {
 
     public GraphEngineContext(@NotNull RawDataStore dataCube, @NotNull GraphMappingSpec schema) {
         this.dataCube = dataCube;
+        this.mappingSpec = schema;
 
         var idPair = schema.idPair();
         var labelPair = schema.labelPair() != null ? schema.labelPair() : idPair;

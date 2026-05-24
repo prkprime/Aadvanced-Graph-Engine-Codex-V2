@@ -5,10 +5,16 @@ import com.self.help.context.NodePropertyPairContext;
 import com.self.help.context.RelationPropertyContext;
 import com.self.help.input.GraphMappingSpec;
 import com.self.help.enums.MappingTargetType;
+import com.self.help.enums.TraversalDirection;
 import com.self.help.legacy.IntegerColumnarStore;
 import com.self.help.legacy.RawDataStore;
 import com.self.help.output.GraphEdgeResponse;
+import com.self.help.output.GraphNodeStats;
 import com.self.help.output.VertexAttributesResponse;
+import com.self.help.output.GraphSchemaResponse;
+import com.self.help.output.KNeighborsResponse;
+import com.self.help.input.NodePropertyMappingSpec;
+import com.self.help.input.RelationPropertyMappingSpec;
 import com.self.help.storage.BiDirectionalDictionary;
 import com.self.help.storage.InvertedIndexColumn;
 import org.jetbrains.annotations.NotNull;
@@ -19,6 +25,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
+import java.util.LinkedList;
+import java.util.Set;
+import java.util.LinkedHashSet;
 
 import static com.self.help.util.GraphMappingSchemaValidator.validate;
 
@@ -416,5 +426,236 @@ public class GraphIngestionEngine {
             attrs.add(val);
         }
         return attrs;
+    }
+
+    /**
+     * Computes per-vertex edge statistics for every known vertex in the graph.
+     * <p>
+     * For each vertex numeric id, the method counts active outgoing edges
+     * (rows where that vertex appears on the FROM side and is not tombstoned)
+     * and active incoming edges (rows where that vertex appears on the TO side
+     * and is not tombstoned). Tombstoned rows are excluded using the
+     * {@code fromDeleted} and {@code toDeleted} bitmaps.
+     * <p>
+     * The returned map is keyed by the compact numeric vertex id assigned by
+     * the {@link BiDirectionalDictionary} during ingestion.
+     *
+     * @return map from numeric vertex id to its {@link GraphNodeStats}, in dictionary-assignment order
+     */
+    @NotNull
+    public synchronized Map<Integer, GraphNodeStats> getVertexStats() {
+        NodePropertyPairContext idContext = graphEngineContext.getIdContext();
+        int numIds = idContext.getBiDirectionalDictionary().size();
+
+        Map<Integer, GraphNodeStats> result = new LinkedHashMap<>(numIds);
+        for (int vertexId = 0; vertexId < numIds; vertexId++) {
+            GraphNodeStats stats = getVertexStats(vertexId);
+            if (stats != null) {
+                result.put(vertexId, stats);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Computes edge statistics for a specific vertex in the graph.
+     * <p>
+     * Counts active outgoing edges (rows where that vertex appears on the FROM side
+     * and is not tombstoned) and active incoming edges (rows where that vertex appears
+     * on the TO side and is not tombstoned). Tombstoned rows are excluded using the
+     * {@code fromDeleted} and {@code toDeleted} bitmaps.
+     *
+     * @param vertexId encoded integer id of the vertex
+     * @return {@link GraphNodeStats} for the vertex, or {@code null} if the vertex id is out of bounds
+     */
+    @Nullable
+    public synchronized GraphNodeStats getVertexStats(int vertexId) {
+        NodePropertyPairContext idContext = graphEngineContext.getIdContext();
+        if (vertexId < 0 || vertexId >= idContext.getBiDirectionalDictionary().size()) {
+            return null;
+        }
+
+        InvertedIndexColumn fromIndex = idContext.getFromInvertedIndexColumn();
+        InvertedIndexColumn toIndex = idContext.getToInvertedIndexColumn();
+        RoaringBitmap fromDeleted = graphEngineContext.getFromDeleted();
+        RoaringBitmap toDeleted = graphEngineContext.getToDeleted();
+
+        int outgoing = activeCount(fromIndex.getRowsForValueOrNull(vertexId), fromDeleted);
+        int incoming = activeCount(toIndex.getRowsForValueOrNull(vertexId), toDeleted);
+        return new GraphNodeStats(outgoing, incoming);
+    }
+
+    /**
+     * Returns the number of active (non-tombstoned) rows in the supplied bitmap.
+     *
+     * @param rows    bitmap of candidate row ids, or {@code null} when none exist
+     * @param deleted tombstone bitmap to subtract from the candidate set
+     * @return count of rows present in {@code rows} but absent from {@code deleted}
+     */
+    private static int activeCount(@Nullable RoaringBitmap rows, @NotNull RoaringBitmap deleted) {
+        if (rows == null || rows.isEmpty()) {
+            return 0;
+        }
+        return (int) RoaringBitmap.andNot(rows, deleted).getLongCardinality();
+    }
+
+    /**
+     * Generates the schema metadata for the active graph.
+     *
+     * @return structural and statistical schema metadata
+     * @deprecated Marked as deprecated temporarily for review of how the UI consumes this contract.
+     */
+    @Deprecated
+    @NotNull
+    public synchronized GraphSchemaResponse getSchema() {
+        GraphMappingSpec spec = graphEngineContext.getMappingSpec();
+        NodePropertyPairContext idContext = graphEngineContext.getIdContext();
+        NodePropertyPairContext labelContext = graphEngineContext.getLabelContext();
+
+        var idPairSchema = new GraphSchemaResponse.IdPairSchema(
+                spec.idPair().fromColumnName(),
+                spec.idPair().toColumnName(),
+                idContext.getBiDirectionalDictionary().size()
+        );
+
+        var labelPairSpec = spec.labelPair() != null ? spec.labelPair() : spec.idPair();
+        var labelPairSchema = new GraphSchemaResponse.LabelPairSchema(
+                labelPairSpec.fromColumnName(),
+                labelPairSpec.toColumnName(),
+                labelContext.getBiDirectionalDictionary().size()
+        );
+
+        List<GraphSchemaResponse.AttributeSchema> attributes = new ArrayList<>();
+        NodePropertyPairContext[] attributeContexts = graphEngineContext.getAttributesContext();
+        for (int i = 0; i < spec.nodeAttributes().size(); i++) {
+            NodePropertyMappingSpec attrSpec = spec.nodeAttributes().get(i);
+            int uniqueValCount = attributeContexts[i].getBiDirectionalDictionary().size();
+            attributes.add(new GraphSchemaResponse.AttributeSchema(
+                    attrSpec.attributeName(),
+                    attrSpec.fromColumnName(),
+                    attrSpec.toColumnName(),
+                    uniqueValCount
+            ));
+        }
+
+        List<GraphSchemaResponse.RelationSchema> relations = new ArrayList<>();
+        RelationPropertyContext[] relationContexts = graphEngineContext.getRelations();
+        for (int i = 0; i < spec.relations().size(); i++) {
+            RelationPropertyMappingSpec relSpec = spec.relations().get(i);
+            int uniqueValCount = relationContexts[i].getBiDirectionalDictionary().size();
+            relations.add(new GraphSchemaResponse.RelationSchema(
+                    relSpec.columnName(),
+                    uniqueValCount
+            ));
+        }
+
+        var storageMetricsSchema = new GraphSchemaResponse.StorageMetricsSchema(
+                getIngestedRowCount(),
+                idContext.getBiDirectionalDictionary().size()
+        );
+
+        return new GraphSchemaResponse(
+                idPairSchema,
+                labelPairSchema,
+                attributes,
+                relations,
+                storageMetricsSchema
+        );
+    }
+
+    /**
+     * Traverses the graph up to K hops starting from the specified vertex numeric ID,
+     * filtering by directed/undirected traversal paths. Returns a subgraph structure
+     * detailing all reached vertices and their connecting edges.
+     *
+     * @param startVertexId encoded integer ID of the starting vertex
+     * @param k             maximum hop count for neighborhood expansion
+     * @param direction     directional filter (OUTGOING, INCOMING, or BOTH)
+     * @return the K-hop neighborhood subgraph
+     * @throws IllegalArgumentException if startVertexId is invalid or out of bounds
+     */
+    @NotNull
+    public synchronized KNeighborsResponse getKNeighbors(int startVertexId, int k, @NotNull TraversalDirection direction) {
+        NodePropertyPairContext idContext = graphEngineContext.getIdContext();
+        if (startVertexId < 0 || startVertexId >= idContext.getBiDirectionalDictionary().size()) {
+            throw new IllegalArgumentException("Starting vertex ID " + startVertexId + " does not exist.");
+        }
+
+        if (k < 0) {
+            throw new IllegalArgumentException("Hop count K cannot be negative.");
+        }
+
+        Set<Integer> visited = new LinkedHashSet<>();
+        Set<Integer> discoveredEdges = new LinkedHashSet<>();
+        visited.add(startVertexId);
+
+        if (k > 0) {
+            Queue<Integer> queue = new LinkedList<>();
+            queue.add(startVertexId);
+
+            for (int depth = 0; depth < k; depth++) {
+                int levelSize = queue.size();
+                if (levelSize == 0) {
+                    break;
+                }
+
+                for (int i = 0; i < levelSize; i++) {
+                    int v = queue.poll();
+
+                    // 1. Process OUTGOING edges (treating v as source/from)
+                    if (direction == TraversalDirection.OUTGOING || direction == TraversalDirection.BOTH) {
+                        RoaringBitmap fromRows = idContext.getFromInvertedIndexColumn().getRowsForValueOrNull(v);
+                        if (fromRows != null && !fromRows.isEmpty()) {
+                            RoaringBitmap activeRows = RoaringBitmap.andNot(fromRows, graphEngineContext.getFromDeleted());
+                            activeRows.andNot(graphEngineContext.getToDeleted());
+                            for (int rowId : activeRows) {
+                                discoveredEdges.add(rowId);
+                                int targetId = idContext.getToIntegerColumnarStore().getInt(rowId);
+                                if (visited.add(targetId)) {
+                                    queue.add(targetId);
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Process INCOMING edges (treating v as target/to)
+                    if (direction == TraversalDirection.INCOMING || direction == TraversalDirection.BOTH) {
+                        RoaringBitmap toRows = idContext.getToInvertedIndexColumn().getRowsForValueOrNull(v);
+                        if (toRows != null && !toRows.isEmpty()) {
+                            RoaringBitmap activeRows = RoaringBitmap.andNot(toRows, graphEngineContext.getToDeleted());
+                            activeRows.andNot(graphEngineContext.getFromDeleted());
+                            for (int rowId : activeRows) {
+                                discoveredEdges.add(rowId);
+                                int sourceId = idContext.getFromIntegerColumnarStore().getInt(rowId);
+                                if (visited.add(sourceId)) {
+                                    queue.add(sourceId);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Build vertices dictionary map
+        Map<Integer, String> vertices = new LinkedHashMap<>(visited.size());
+        for (int vid : visited) {
+            String label = getResolvedVertexLabel(vid);
+            if (label != null) {
+                vertices.put(vid, label);
+            }
+        }
+
+        // Build edges list
+        List<GraphEdgeResponse> edges = new ArrayList<>(discoveredEdges.size());
+        for (int rowId : discoveredEdges) {
+            Integer fromVertexId = graphEngineContext.getFromDeleted().contains(rowId) ? null
+                    : idContext.getFromIntegerColumnarStore().getInt(rowId);
+            Integer toVertexId = graphEngineContext.getToDeleted().contains(rowId) ? null
+                    : idContext.getToIntegerColumnarStore().getInt(rowId);
+            edges.add(new GraphEdgeResponse(fromVertexId, toVertexId, decodeRelationValues(rowId)));
+        }
+
+        return new KNeighborsResponse(vertices, List.copyOf(edges));
     }
 }

@@ -1,8 +1,12 @@
 package com.self.help;
 
+import com.self.help.enums.TraversalDirection;
 import com.self.help.input.DictionaryQueryRequest;
 import com.self.help.input.GraphMappingSpec;
 import com.self.help.output.GraphEdgeResponse;
+import com.self.help.output.GraphNodeStats;
+import com.self.help.output.GraphSchemaResponse;
+import com.self.help.output.KNeighborsResponse;
 import com.self.help.output.VertexAttributesResponse;
 import com.self.help.storage.BiDirectionalDictionary;
 import lombok.RequiredArgsConstructor;
@@ -10,6 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Collections;
@@ -85,34 +90,53 @@ public class GraphQueryController {
     }
 
     /**
-     * Returns the schema metadata for a graph.
+     * Returns structural layout and statistical schema metadata for the graph.
      * <p>
-     * The intended response should describe how raw columns are mapped into the
-     * graph model, including from-node columns, to-node columns, relation
-     * columns, and any supported attributes. The current method returns an empty
-     * stub payload.
+     * Describes how raw columns are mapped to vertex ID, label, vertex-level attributes,
+     * and edge-level relation columns, along with unique dictionary cardinality counts.
      *
      * @param graphId logical graph identifier supplied in the URL
-     * @return placeholder schema response
+     * @return structural and statistical schema metadata
+     * @deprecated Marked as deprecated temporarily for review of how the UI consumes this contract.
      */
+    @Deprecated
     @GetMapping("/api/v1/graphs/{graphId}/schema")
-    public Map<String, Object> getSchema(@PathVariable String graphId) {
-        return Collections.emptyMap();
+    public GraphSchemaResponse getSchema(@PathVariable String graphId) {
+        return graphIngestionEngine.getSchema();
     }
 
     /**
-     * Returns aggregate statistics for a graph.
+     * Returns per-vertex edge statistics for every vertex in the graph.
      * <p>
-     * The intended response should include lightweight counts such as vertex
-     * count, edge count, relation count, and eventually ingestion or storage
-     * metrics. The current method returns an empty stub payload.
+     * The response is keyed by the compact numeric vertex id (dictionary-assigned
+     * during ingestion) and maps to a {@link GraphNodeStats} describing the
+     * number of active outgoing edges, active incoming edges, and their total.
+     * Tombstoned (null-side) rows are excluded from both counts.
      *
      * @param graphId logical graph identifier supplied in the URL
-     * @return placeholder statistics response
+     * @return map from numeric vertex id to its edge statistics
      */
     @GetMapping("/api/v1/graphs/{graphId}/stats")
-    public Map<String, Object> getStats(@PathVariable String graphId) {
-        return Collections.emptyMap();
+    public Map<Integer, GraphNodeStats> getStats(@PathVariable String graphId) {
+        return graphIngestionEngine.getVertexStats();
+    }
+
+    /**
+     * Returns edge statistics for a specific vertex in the graph.
+     * <p>
+     * The response describes the {@link GraphNodeStats} of the given vertex,
+     * including active outgoing edges, active incoming edges, and their sum.
+     * Tombstoned (null-side) rows are excluded from both counts.
+     *
+     * @param graphId  logical graph identifier supplied in the URL
+     * @param vertexId the numeric integer id of the vertex to lookup
+     * @return the {@link GraphNodeStats} for the vertex, or {@code null} if the vertex is not found
+     */
+    @GetMapping("/api/v1/graphs/{graphId}/vertices/{vertexId}/stats")
+    public GraphNodeStats getStats(
+            @PathVariable String graphId,
+            @PathVariable int vertexId) {
+        return graphIngestionEngine.getVertexStats(vertexId);
     }
 
     /**
@@ -147,5 +171,26 @@ public class GraphQueryController {
             @PathVariable String graphId,
             @PathVariable int numericId) {
         return graphIngestionEngine.getVertexAttributes(numericId);
+    }
+
+    /**
+     * Retrieves the K-hop neighborhood subgraph for a vertex.
+     * <p>
+     * Follows forward (outgoing), backward (incoming), or both edge paths to discover
+     * all reached vertices and their connecting edges up to K steps.
+     *
+     * @param graphId   logical graph identifier supplied in the URL
+     * @param numericId the numeric integer ID of the starting vertex
+     * @param k         maximum hop count for neighborhood expansion (defaults to 1)
+     * @param direction traversal path direction (defaults to BOTH)
+     * @return the neighbors subgraph response
+     */
+    @GetMapping("/api/v1/graphs/{graphId}/vertices/{numericId}/neighbors")
+    public KNeighborsResponse getKNeighbors(
+            @PathVariable String graphId,
+            @PathVariable int numericId,
+            @RequestParam(defaultValue = "1") int k,
+            @RequestParam(defaultValue = "BOTH") TraversalDirection direction) {
+        return graphIngestionEngine.getKNeighbors(numericId, k, direction);
     }
 }

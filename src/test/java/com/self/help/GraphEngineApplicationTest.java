@@ -89,6 +89,30 @@ class GraphEngineApplicationTest {
                 .andExpect(jsonPath("$['15']").value("Analytics Pipeline"));    // ANALYTICS
     }
 
+    @Test
+    @SuppressWarnings("deprecation")
+    void exposesSchemaEndpoint() throws Exception {
+        mockMvc.perform(get("/api/v1/graphs/default/schema"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.idPair.fromColumn").value("fromId"))
+                .andExpect(jsonPath("$.idPair.toColumn").value("toId"))
+                .andExpect(jsonPath("$.idPair.uniqueVertexCount").value(16))
+                .andExpect(jsonPath("$.labelPair.fromColumn").value("fromLabel"))
+                .andExpect(jsonPath("$.labelPair.toColumn").value("toLabel"))
+                .andExpect(jsonPath("$.labelPair.uniqueLabelCount").value(16))
+                .andExpect(jsonPath("$.attributes", hasSize(1)))
+                .andExpect(jsonPath("$.attributes[0].name").value("type"))
+                .andExpect(jsonPath("$.attributes[0].uniqueValueCount").value(6))
+                .andExpect(jsonPath("$.relations", hasSize(2)))
+                .andExpect(jsonPath("$.relations[0].name").value("relation"))
+                .andExpect(jsonPath("$.relations[0].uniqueValueCount").value(8))
+                .andExpect(jsonPath("$.relations[1].name").value("priority"))
+                .andExpect(jsonPath("$.relations[1].uniqueValueCount").value(3))
+                .andExpect(jsonPath("$.storageMetrics.ingestedRowCount").value(15))
+                .andExpect(jsonPath("$.storageMetrics.activeVertexCount").value(16));
+    }
+
     private GraphMappingSpec buildTestSchema() {
         return GraphMappingSpec.builder()
                 .idPair("fromId", "toId")
@@ -154,5 +178,103 @@ class GraphEngineApplicationTest {
                 .andExpect(jsonPath("$.resolvedLabel").value("Authentication Service"))
                 .andExpect(jsonPath("$.resolvedAttributes", hasSize(1)))
                 .andExpect(jsonPath("$.resolvedAttributes[0][0]").value("service"));
+    }
+
+    @Test
+    void exposesStatsEndpoint() throws Exception {
+        // Numeric ID 0 (AUTH) should have outgoingEdgeCount=2, incomingEdgeCount=1, totalEdgeCount=3
+        mockMvc.perform(get("/api/v1/graphs/default/stats"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.*").value(hasSize(16)))
+                .andExpect(jsonPath("$['0'].outgoingEdgeCount").value(2))
+                .andExpect(jsonPath("$['0'].incomingEdgeCount").value(1))
+                .andExpect(jsonPath("$['0'].totalEdgeCount").value(3));
+    }
+
+    @Test
+    void exposesVertexStatsEndpoint() throws Exception {
+        int numericId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("AUTH");
+
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + numericId + "/stats"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.outgoingEdgeCount").value(2))
+                .andExpect(jsonPath("$.incomingEdgeCount").value(1))
+                .andExpect(jsonPath("$.totalEdgeCount").value(3));
+    }
+
+    @Test
+    void exposesKNeighborsDefaultBoth() throws Exception {
+        int numericId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("AUTH");
+
+        // Traversal K=1, Direction=BOTH (default):
+        // Vertices reached: AUTH (0), USER_DB (1), TOKEN_CACHE (2), API (3)
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + numericId + "/neighbors")
+                        .param("k", "1")
+                        .param("direction", "BOTH"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.vertices", aMapWithSize(4)))
+                .andExpect(jsonPath("$.vertices['0']").value("Authentication Service"))
+                .andExpect(jsonPath("$.vertices['1']").value("User Database"))
+                .andExpect(jsonPath("$.vertices['2']").value("Token Cache"))
+                .andExpect(jsonPath("$.vertices['3']").value("Public API"))
+                .andExpect(jsonPath("$.edges", hasSize(3)));
+    }
+
+    @Test
+    void exposesKNeighborsOutgoingOnly() throws Exception {
+        int numericId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("AUTH");
+
+        // Traversal K=1, Direction=OUTGOING:
+        // Vertices reached: AUTH (0), USER_DB (1), TOKEN_CACHE (2)
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + numericId + "/neighbors")
+                        .param("k", "1")
+                        .param("direction", "OUTGOING"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.vertices", aMapWithSize(3)))
+                .andExpect(jsonPath("$.vertices['0']").value("Authentication Service"))
+                .andExpect(jsonPath("$.vertices['1']").value("User Database"))
+                .andExpect(jsonPath("$.vertices['2']").value("Token Cache"))
+                .andExpect(jsonPath("$.vertices['3']").doesNotExist())
+                .andExpect(jsonPath("$.edges", hasSize(2)))
+                .andExpect(jsonPath("$.edges[0].fromVertexId").value(0))
+                .andExpect(jsonPath("$.edges[0].toVertexId").value(1))
+                .andExpect(jsonPath("$.edges[1].fromVertexId").value(0))
+                .andExpect(jsonPath("$.edges[1].toVertexId").value(2));
+    }
+
+    @Test
+    void exposesKNeighborsIncomingOnly() throws Exception {
+        int numericId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("AUTH");
+
+        // Traversal K=1, Direction=INCOMING:
+        // Vertices reached: AUTH (0), API (3)
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + numericId + "/neighbors")
+                        .param("k", "1")
+                        .param("direction", "INCOMING"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.vertices", aMapWithSize(2)))
+                .andExpect(jsonPath("$.vertices['0']").value("Authentication Service"))
+                .andExpect(jsonPath("$.vertices['3']").value("Public API"))
+                .andExpect(jsonPath("$.vertices['1']").doesNotExist())
+                .andExpect(jsonPath("$.edges", hasSize(1)))
+                .andExpect(jsonPath("$.edges[0].fromVertexId").value(3))
+                .andExpect(jsonPath("$.edges[0].toVertexId").value(0));
     }
 }
