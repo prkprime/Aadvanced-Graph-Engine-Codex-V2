@@ -691,11 +691,11 @@ public class GraphIngestionEngine {
 
     /**
      * Resolves and returns the detailed representation of the next active vertex
-     * following the specified vertex ID, wrapping around cyclically if needed.
-     * Useful when the currently selected vertex has no active connections (tombstoned).
+     * following the specified vertex ID, returning {@code null} if the end of the vertex range is reached
+     * (i.e. if it is the last active node).
      *
      * @param currentVertexId the numeric integer ID of the current vertex (use -1 to search from the beginning)
-     * @return the next available {@link VertexDetailsResponse}, or {@code null} if no active nodes exist
+     * @return the next available {@link VertexDetailsResponse}, or {@code null} if no further active nodes exist
      */
     @Nullable
     public synchronized VertexDetailsResponse getNextVertexDetails(int currentVertexId) {
@@ -705,8 +705,8 @@ public class GraphIngestionEngine {
             return null;
         }
 
-        for (int i = 1; i <= numIds; i++) {
-            VertexDetailsResponse details = getVertexDetails(Math.floorMod(currentVertexId + i, numIds));
+        for (int vertexId = currentVertexId + 1; vertexId < numIds; vertexId++) {
+            VertexDetailsResponse details = getVertexDetails(vertexId);
             if (details != null) {
                 return details;
             }

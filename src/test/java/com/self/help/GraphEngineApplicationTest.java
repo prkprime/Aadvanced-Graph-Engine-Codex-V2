@@ -314,4 +314,12 @@ class GraphEngineApplicationTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(""));
     }
+
+    @Test
+    void returnsEmptyBodyForNextOfLastVertex() throws Exception {
+        // ID 15 (ANALYTICS) is the last ingested node
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/15/next"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(""));
+    }
 }
