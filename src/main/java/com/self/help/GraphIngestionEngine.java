@@ -576,7 +576,7 @@ public class GraphIngestionEngine {
      * @throws IllegalArgumentException if startVertexId is invalid or out of bounds
      */
     @NotNull
-    public synchronized KNeighborsResponse getKNeighbors(int startVertexId, int k, @NotNull TraversalDirection direction) {
+        public synchronized KNeighborsResponse getKNeighbors(int startVertexId, int k, @NotNull TraversalDirection direction) {
         NodePropertyPairContext idContext = graphEngineContext.getIdContext();
         if (startVertexId < 0 || startVertexId >= idContext.getBiDirectionalDictionary().size()) {
             throw new IllegalArgumentException("Starting vertex ID " + startVertexId + " does not exist.");
@@ -647,17 +647,34 @@ public class GraphIngestionEngine {
             }
         }
 
-        // Build edges list
-        List<GraphEdgeResponse> edges = new ArrayList<>(discoveredEdges.size());
+        // Build edges list (deduplicated to prevent duplicate identical edge drawings in the UI)
+        Set<GraphEdgeResponse> uniqueEdges = new LinkedHashSet<>();
         for (int rowId : discoveredEdges) {
             Integer fromVertexId = graphEngineContext.getFromDeleted().contains(rowId) ? null
                     : idContext.getFromIntegerColumnarStore().getInt(rowId);
             Integer toVertexId = graphEngineContext.getToDeleted().contains(rowId) ? null
                     : idContext.getToIntegerColumnarStore().getInt(rowId);
-            edges.add(new GraphEdgeResponse(fromVertexId, toVertexId, decodeRelationValues(rowId)));
+            uniqueEdges.add(new GraphEdgeResponse(fromVertexId, toVertexId, decodeRelationValues(rowId)));
         }
 
-        return new KNeighborsResponse(vertices, List.copyOf(edges));
+        return new KNeighborsResponse(vertices, List.copyOf(uniqueEdges));
+    }
+
+    /**
+     * Resolves and returns the detailed representation of a specific vertex by its numeric ID.
+     * Checks if the vertex is active (has a valid source ID and label).
+     *
+     * @param vertexId the numeric integer ID of the vertex
+     * @return the {@link VertexDetailsResponse} if active, or {@code null} if the vertex is invalid or inactive
+     */
+    @Nullable
+    public synchronized VertexDetailsResponse getVertexDetails(int vertexId) {
+        String sourceId = getSourceId(vertexId);
+        String label = getResolvedVertexLabel(vertexId);
+        if (sourceId != null && label != null) {
+            return new VertexDetailsResponse(vertexId, sourceId, label);
+        }
+        return null;
     }
 
     /**
@@ -669,14 +686,29 @@ public class GraphIngestionEngine {
      */
     @Nullable
     public synchronized VertexDetailsResponse getFirstVertexDetails() {
+        return getNextVertexDetails(-1);
+    }
+
+    /**
+     * Resolves and returns the detailed representation of the next active vertex
+     * following the specified vertex ID, wrapping around cyclically if needed.
+     * Useful when the currently selected vertex has no active connections (tombstoned).
+     *
+     * @param currentVertexId the numeric integer ID of the current vertex (use -1 to search from the beginning)
+     * @return the next available {@link VertexDetailsResponse}, or {@code null} if no active nodes exist
+     */
+    @Nullable
+    public synchronized VertexDetailsResponse getNextVertexDetails(int currentVertexId) {
         NodePropertyPairContext idContext = graphEngineContext.getIdContext();
         int numIds = idContext.getBiDirectionalDictionary().size();
+        if (numIds == 0) {
+            return null;
+        }
 
-        for (int vertexId = 0; vertexId < numIds; vertexId++) {
-            String sourceId = getSourceId(vertexId);
-            String label = getResolvedVertexLabel(vertexId);
-            if (sourceId != null && label != null) {
-                return new VertexDetailsResponse(vertexId, sourceId, label);
+        for (int i = 1; i <= numIds; i++) {
+            VertexDetailsResponse details = getVertexDetails(Math.floorMod(currentVertexId + i, numIds));
+            if (details != null) {
+                return details;
             }
         }
         return null;

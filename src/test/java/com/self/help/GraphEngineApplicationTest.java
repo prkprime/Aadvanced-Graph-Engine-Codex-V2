@@ -287,4 +287,31 @@ class GraphEngineApplicationTest {
                 .andExpect(jsonPath("$.sourceId").value("AUTH"))
                 .andExpect(jsonPath("$.sourceLabel").value("Authentication Service"));
     }
+
+    @Test
+    void exposesNextVertexDetailsEndpoint() throws Exception {
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/0/next"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.sourceId").value("USER_DB"))
+                .andExpect(jsonPath("$.sourceLabel").value("User Database"));
+    }
+
+    @Test
+    void exposesVertexDetailsEndpoint() throws Exception {
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/0"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(0))
+                .andExpect(jsonPath("$.sourceId").value("AUTH"))
+                .andExpect(jsonPath("$.sourceLabel").value("Authentication Service"));
+    }
+
+    @Test
+    void returnsEmptyBodyForInvalidVertexDetails() throws Exception {
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/999"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(""));
+    }
 }

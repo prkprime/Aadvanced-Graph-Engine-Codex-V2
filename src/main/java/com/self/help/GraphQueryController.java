@@ -196,6 +196,21 @@ public class GraphQueryController {
     }
 
     /**
+     * Retrieves the detailed representation of a specific vertex by its numeric ID.
+     * Checks if the vertex is active (has a valid source ID and label).
+     *
+     * @param graphId  logical graph identifier supplied in the URL
+     * @param vertexId the numeric integer ID of the vertex
+     * @return the vertex details, or {@code null} if the vertex is invalid or inactive
+     */
+    @GetMapping("/api/v1/graphs/{graphId}/vertices/{vertexId}")
+    public VertexDetailsResponse getVertexDetails(
+            @PathVariable String graphId,
+            @PathVariable int vertexId) {
+        return graphIngestionEngine.getVertexDetails(vertexId);
+    }
+
+    /**
      * Retrieves the detailed representation of the first active (non-deleted) vertex
      * in the graph database. Useful for initial UI focus or default dashboard selections.
      *
@@ -205,5 +220,21 @@ public class GraphQueryController {
     @GetMapping("/api/v1/graphs/{graphId}/vertices/first")
     public VertexDetailsResponse getFirstVertexDetails(@PathVariable String graphId) {
         return graphIngestionEngine.getFirstVertexDetails();
+    }
+
+    /**
+     * Retrieves the detailed representation of the next active (non-deleted) vertex
+     * following the specified vertex ID, wrapping around cyclically if needed.
+     * Useful when the currently selected vertex has no active connections (tombstoned).
+     *
+     * @param graphId  logical graph identifier supplied in the URL
+     * @param vertexId the numeric integer ID of the current vertex
+     * @return the next available vertex details, or {@code null} if no other active nodes exist
+     */
+    @GetMapping("/api/v1/graphs/{graphId}/vertices/{vertexId}/next")
+    public VertexDetailsResponse getNextVertexDetails(
+            @PathVariable String graphId,
+            @PathVariable int vertexId) {
+        return graphIngestionEngine.getNextVertexDetails(vertexId);
     }
 }

@@ -46,6 +46,7 @@ This codebase implements a high-performance, columnar graph ingestion engine. It
   - `getNumericIdBySourceId(String sourceId)` performs a non-mutating lookup from source string to compact numeric ID. It returns `null` when the source string was never ingested.
   - `getResolvedVertexLabel(int numericId)` finds the first valid non-deleted occurrence on either side using inverted indexes and tombstone bitmaps.
   - `getVertexAttributes(int numericId)` merges valid FROM and TO occurrences in ingestion order, extracts attribute sets in schema order, and returns a unified duplicate-filtered list of attribute lists.
+  - `getVertexDetails(int vertexId)` resolves the compact numeric ID to `VertexDetailsResponse` holding the ID, original source string, and resolved label if active, returning `null` if inactive.
 
 ## Development Conventions
 
