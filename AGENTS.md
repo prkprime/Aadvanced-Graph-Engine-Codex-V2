@@ -56,6 +56,7 @@ This codebase implements a high-performance, columnar graph ingestion engine. It
 - **Refactoring and DRY**: Extract common logic when it removes meaningful duplication or simplifies the code.
 - **No dead fields or legacy bridges**: Keep unused fields, legacy intermediate specs, and bridging logic such as legacy `toMappingSpec()` removed.
 - **Documentation integrity**: Maintain accurate Javadocs and inline comments. When changing a method's logic, signature, or behavior, audit its documentation and update anything stale or misleading.
+- **Serialization**: All classes and records that are part of the input and output models (representing API payloads and schemas) must implement `java.io.Serializable` to ensure compatibility with session management, caching, and wire transport.
 - **Target directory exclusion**: Do not use `target` or any of its subdirectories for context, processing, search, or edits.
 
 ## Testing Guidelines

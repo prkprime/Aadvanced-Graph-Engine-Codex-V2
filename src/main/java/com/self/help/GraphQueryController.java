@@ -8,6 +8,7 @@ import com.self.help.output.GraphNodeStats;
 import com.self.help.output.GraphSchemaResponse;
 import com.self.help.output.KNeighborsResponse;
 import com.self.help.output.VertexAttributesResponse;
+import com.self.help.output.VertexDetailsResponse;
 import com.self.help.storage.BiDirectionalDictionary;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -192,5 +193,17 @@ public class GraphQueryController {
             @RequestParam(defaultValue = "1") int k,
             @RequestParam(defaultValue = "BOTH") TraversalDirection direction) {
         return graphIngestionEngine.getKNeighbors(numericId, k, direction);
+    }
+
+    /**
+     * Retrieves the detailed representation of the first active (non-deleted) vertex
+     * in the graph database. Useful for initial UI focus or default dashboard selections.
+     *
+     * @param graphId logical graph identifier supplied in the URL
+     * @return the first available vertex details, or {@code null} if no active nodes exist
+     */
+    @GetMapping("/api/v1/graphs/{graphId}/vertices/first")
+    public VertexDetailsResponse getFirstVertexDetails(@PathVariable String graphId) {
+        return graphIngestionEngine.getFirstVertexDetails();
     }
 }

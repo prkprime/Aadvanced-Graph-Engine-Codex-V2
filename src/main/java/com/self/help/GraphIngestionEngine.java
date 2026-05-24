@@ -13,6 +13,7 @@ import com.self.help.output.GraphNodeStats;
 import com.self.help.output.VertexAttributesResponse;
 import com.self.help.output.GraphSchemaResponse;
 import com.self.help.output.KNeighborsResponse;
+import com.self.help.output.VertexDetailsResponse;
 import com.self.help.input.NodePropertyMappingSpec;
 import com.self.help.input.RelationPropertyMappingSpec;
 import com.self.help.storage.BiDirectionalDictionary;
@@ -657,5 +658,27 @@ public class GraphIngestionEngine {
         }
 
         return new KNeighborsResponse(vertices, List.copyOf(edges));
+    }
+
+    /**
+     * Resolves and returns the detailed representation of the first active vertex
+     * loaded in the graph engine. Checks vertices sequentially by numeric ID to find
+     * the first non-deleted occurrence.
+     *
+     * @return the first available {@link VertexDetailsResponse}, or {@code null} if the graph is empty
+     */
+    @Nullable
+    public synchronized VertexDetailsResponse getFirstVertexDetails() {
+        NodePropertyPairContext idContext = graphEngineContext.getIdContext();
+        int numIds = idContext.getBiDirectionalDictionary().size();
+
+        for (int vertexId = 0; vertexId < numIds; vertexId++) {
+            String sourceId = getSourceId(vertexId);
+            String label = getResolvedVertexLabel(vertexId);
+            if (sourceId != null && label != null) {
+                return new VertexDetailsResponse(vertexId, sourceId, label);
+            }
+        }
+        return null;
     }
 }

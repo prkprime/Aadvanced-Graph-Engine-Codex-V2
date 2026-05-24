@@ -8,7 +8,7 @@ High-performance, columnar-based graph ingestion engine implemented in Java 21 a
 - **`GraphIngestionEngine`**: The central coordinator for data ingestion. It handles dictionary encoding, numerical storage, index updates, and manages partial row ingestion. It also exposes APIs for edge projections (emitting compact numeric vertex IDs), vertex dictionary extraction (numeric ID → label), source ID resolution, and vertex attribute lookups.
 - **`GraphEngineContext`**: Manages all property contexts (`NodePropertyPairContext` for node properties and attributes, `RelationPropertyContext` for edge relations). Exposes flat-mapped dictionaries, integer columnar stores, and tombstone tracking.
 - **Property Contexts**:
-  - `NodePropertyPairContext`: Shares one `BiDirectionalDictionary` across both FROM and TO sides while keeping side-specific `IntegerColumnarStore` and `InvertedIndexColumn` stores for node properties/attributes.
+  - `NodePropertyPairContext`: Shares one `BiDirectionalDictionary` across FROM and TO sides while keeping side-specific `IntegerColumnarStore` and `InvertedIndexColumn` stores for node properties/attributes.
   - `RelationPropertyContext`: Manages `BiDirectionalDictionary`, `IntegerColumnarStore`, and `InvertedIndexColumn` for a single edge relation column.
 - **Storage Primitives**:
   - `BiDirectionalDictionary`: Maps strings to integers and vice versa.
@@ -33,6 +33,7 @@ High-performance, columnar-based graph ingestion engine implemented in Java 21 a
 - **Refactoring & DRY**: When creating or modifying source code, proactively identify opportunities to extract common logic into reusable methods or components. Prioritize clean, deduplicated code.
 - **Performance First**: The ingestion path is optimized to avoid branching and object instantiation. Use `RoaringBitmap` for index-level operations.
 - **Nullability**: Annotate all public signatures with `@NotNull` or `@Nullable` (JetBrains annotations).
+- **Serialization**: All classes and records that are part of the input and output models (representing API payloads and schemas) must implement `java.io.Serializable` to ensure compatibility with session management, caching, and wire transport.
 - **Target Directory Exclusion**: Do not consider the `target` directory and its subdirectories for any kind of context, processing, or literally anything.
 
 ### Data Handling & Tombstones

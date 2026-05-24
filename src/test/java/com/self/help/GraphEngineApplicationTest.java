@@ -277,4 +277,14 @@ class GraphEngineApplicationTest {
                 .andExpect(jsonPath("$.edges[0].fromVertexId").value(3))
                 .andExpect(jsonPath("$.edges[0].toVertexId").value(0));
     }
+
+    @Test
+    void exposesFirstVertexDetailsEndpoint() throws Exception {
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/first"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(0))
+                .andExpect(jsonPath("$.sourceId").value("AUTH"))
+                .andExpect(jsonPath("$.sourceLabel").value("Authentication Service"));
+    }
 }
