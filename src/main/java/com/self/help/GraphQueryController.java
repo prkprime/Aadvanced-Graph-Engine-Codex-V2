@@ -11,12 +11,15 @@ import com.self.help.output.VertexAttributesResponse;
 import com.self.help.output.VertexDetailsResponse;
 import com.self.help.storage.BiDirectionalDictionary;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import com.self.help.input.VertexDeleteRequest;
+import com.self.help.output.DeleteResponse;
 
 import java.util.Collections;
 import java.util.List;
@@ -236,5 +239,70 @@ public class GraphQueryController {
             @PathVariable String graphId,
             @PathVariable int vertexId) {
         return graphIngestionEngine.getNextVertexDetails(vertexId);
+    }
+
+    /**
+     * Soft-deletes a vertex according to the parameters in the {@link VertexDeleteRequest} body.
+     *
+     * @param graphId logical graph identifier supplied in the URL
+     * @param request deletion configuration payload
+     * @return deletion status response
+     */
+    @PostMapping("/api/v1/graphs/{graphId}/vertices/delete")
+    public DeleteResponse deleteVertex(
+            @PathVariable String graphId,
+            @RequestBody VertexDeleteRequest request) {
+        boolean success = graphIngestionEngine.deleteVertex(request);
+        String message = success ? "Vertex deleted successfully." : "Failed to delete vertex (invalid ID or already deleted).";
+        return new DeleteResponse(success, message);
+    }
+
+    /**
+     * Calculates and returns the map of impacted vertices (with their IDs and labels)
+     * if the specified deletion configuration request were to be executed.
+     *
+     * @param graphId logical graph identifier supplied in the URL
+     * @param request deletion configuration payload
+     * @return map of impacted vertex ID to display label
+     */
+    @PostMapping("/api/v1/graphs/{graphId}/vertices/impacted")
+    public Map<Integer, String> getImpactedVertices(
+            @PathVariable String graphId,
+            @RequestBody VertexDeleteRequest request) {
+        return graphIngestionEngine.getImpactedVertices(request);
+    }
+
+    /**
+     * Soft-deletes a specific edge by its RawDataStore row index.
+     *
+     * @param graphId logical graph identifier
+     * @param rowId   the raw row ID of the edge
+     * @return deletion status response
+     */
+    @DeleteMapping("/api/v1/graphs/{graphId}/edges/{rowId}")
+    public DeleteResponse deleteEdge(
+            @PathVariable String graphId,
+            @PathVariable int rowId) {
+        boolean success = graphIngestionEngine.deleteEdge(rowId);
+        String message = success ? "Edge deleted successfully." : "Failed to delete edge (invalid rowId or already deleted).";
+        return new DeleteResponse(success, message);
+    }
+
+    /**
+     * Soft-deletes all active edges between specific FROM and TO vertices.
+     *
+     * @param graphId logical graph identifier
+     * @param fromId  numeric integer ID of the source vertex
+     * @param toId    numeric integer ID of the target vertex
+     * @return deletion status response
+     */
+    @DeleteMapping("/api/v1/graphs/{graphId}/edges")
+    public DeleteResponse deleteEdge(
+            @PathVariable String graphId,
+            @RequestParam int fromId,
+            @RequestParam int toId) {
+        boolean success = graphIngestionEngine.deleteEdge(fromId, toId);
+        String message = success ? "Edges between specified nodes deleted successfully." : "No active edges found between specified nodes.";
+        return new DeleteResponse(success, message);
     }
 }

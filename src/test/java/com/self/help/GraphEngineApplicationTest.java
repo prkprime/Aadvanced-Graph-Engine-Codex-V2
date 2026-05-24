@@ -9,12 +9,15 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.annotation.DirtiesContext;
 
 import static org.hamcrest.Matchers.aMapWithSize;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -321,5 +324,225 @@ class GraphEngineApplicationTest {
         mockMvc.perform(get("/api/v1/graphs/default/vertices/15/next"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(""));
+    }
+
+    @Test
+    @DirtiesContext
+    void verifiesVertexDeletionPropagation() throws Exception {
+        int authId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("AUTH");
+
+        // Verify initial state
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + authId + "/stats"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outgoingEdgeCount").value(2))
+                .andExpect(jsonPath("$.incomingEdgeCount").value(1));
+
+        // Delete AUTH (no cascade)
+        String requestJson = """
+                {
+                  "nodeId": %d,
+                  "downStream": false,
+                  "upstream": false
+                }
+                """.formatted(authId);
+
+        mockMvc.perform(post("/api/v1/graphs/default/vertices/delete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Vertex deleted successfully."));
+
+        // Verify vertex is removed from dictionary
+        mockMvc.perform(get("/api/v1/graphs/default/vertices"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['" + authId + "']").doesNotExist());
+
+        // Verify stats return empty/null or not found because it's soft-deleted
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + authId + "/stats"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(""));
+
+        // Verify details return empty
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + authId))
+                .andExpect(status().isOk())
+                .andExpect(content().string(""));
+
+        // Verify next skips deleted node
+        // API (3) next is AUTH (0) normally. With AUTH deleted, next of API (3) should be ORDER (4)
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/3/next"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(4))
+                .andExpect(jsonPath("$.sourceId").value("ORDER"));
+
+        // Verify edge endpoint is soft-deleted (tombstoned null side)
+        // Row 0: AUTH(0) -> USER_DB(1). Since AUTH is deleted, fromVertexId should be null
+        mockMvc.perform(get("/api/v1/graphs/default/edges"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].fromVertexId").value(nullValue()))
+                .andExpect(jsonPath("$[0].toVertexId").value(1));
+
+        // Deleting the same vertex again should fail
+        mockMvc.perform(post("/api/v1/graphs/default/vertices/delete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("Failed to delete vertex (invalid ID or already deleted)."));
+    }
+
+    @Test
+    @DirtiesContext
+    void verifiesVertexDeletionCascade() throws Exception {
+        int notifyId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("NOTIFY");
+        int emailId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("EMAIL");
+        int smsId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("SMS");
+
+        // Verify active before deletion
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + emailId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceId").value("EMAIL"));
+
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + smsId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceId").value("SMS"));
+
+        // Delete NOTIFY with downstream cascade
+        String requestJson = """
+                {
+                  "nodeId": %d,
+                  "downStream": true,
+                  "upstream": false
+                }
+                """.formatted(notifyId);
+
+        mockMvc.perform(post("/api/v1/graphs/default/vertices/delete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        // Verify NOTIFY, EMAIL, SMS are all deleted
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + notifyId))
+                .andExpect(status().isOk())
+                .andExpect(content().string(""));
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + emailId))
+                .andExpect(status().isOk())
+                .andExpect(content().string(""));
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + smsId))
+                .andExpect(status().isOk())
+                .andExpect(content().string(""));
+    }
+
+    @Test
+    @DirtiesContext
+    void verifiesEdgeDeletionByRowId() throws Exception {
+        int authId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("AUTH");
+        int userDbId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("USER_DB");
+
+        // Initial stats check
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + authId + "/stats"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outgoingEdgeCount").value(2));
+
+        // Delete edge 0 (AUTH -> USER_DB)
+        mockMvc.perform(delete("/api/v1/graphs/default/edges/0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Edge deleted successfully."));
+
+        // Verify stats decreased
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + authId + "/stats"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outgoingEdgeCount").value(1));
+
+        mockMvc.perform(get("/api/v1/graphs/default/vertices/" + userDbId + "/stats"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(""));
+
+        // Deleting again should fail
+        mockMvc.perform(delete("/api/v1/graphs/default/edges/0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    @DirtiesContext
+    void verifiesEdgeDeletionByEndpoints() throws Exception {
+        int apiId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("API");
+        int authId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("AUTH");
+
+        // Delete edge connecting API to AUTH
+        mockMvc.perform(delete("/api/v1/graphs/default/edges")
+                        .param("fromId", String.valueOf(apiId))
+                        .param("toId", String.valueOf(authId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Edges between specified nodes deleted successfully."));
+
+        // Verify edge is tombstoned in edges list
+        // Row 2 is API(3) -> AUTH(0)
+        mockMvc.perform(get("/api/v1/graphs/default/edges"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[2].fromVertexId").value(nullValue()))
+                .andExpect(jsonPath("$[2].toVertexId").value(nullValue()));
+    }
+
+    @Test
+    void verifiesImpactedVerticesEndpoint() throws Exception {
+        int notifyId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("NOTIFY");
+        int emailId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("EMAIL");
+        int smsId = graphIngestionEngine.getGraphEngineContext()
+                .getIdContext()
+                .getBiDirectionalDictionary()
+                .getIdIfExists("SMS");
+
+        // Request body for checking impacted nodes of NOTIFY downstream
+        String requestJson = """
+                {
+                  "nodeId": %d,
+                  "downStream": true,
+                  "upstream": false
+                }
+                """.formatted(notifyId);
+
+        mockMvc.perform(post("/api/v1/graphs/default/vertices/impacted")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.['" + notifyId + "']").value("Notification Service"))
+                .andExpect(jsonPath("$.['" + emailId + "']").value("Email Provider"))
+                .andExpect(jsonPath("$.['" + smsId + "']").value("Sms Provider"))
+                .andExpect(jsonPath("$.*", hasSize(3)));
     }
 }

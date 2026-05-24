@@ -472,7 +472,8 @@ public class GraphIngestionEngine {
     @Nullable
     public synchronized GraphNodeStats getVertexStats(int vertexId) {
         NodePropertyPairContext idContext = graphEngineContext.getIdContext();
-        if (vertexId < 0 || vertexId >= idContext.getBiDirectionalDictionary().size()) {
+        if (vertexId < 0 || vertexId >= idContext.getBiDirectionalDictionary().size()
+                || getResolvedVertexLabel(vertexId) == null) {
             return null;
         }
 
@@ -578,8 +579,9 @@ public class GraphIngestionEngine {
     @NotNull
         public synchronized KNeighborsResponse getKNeighbors(int startVertexId, int k, @NotNull TraversalDirection direction) {
         NodePropertyPairContext idContext = graphEngineContext.getIdContext();
-        if (startVertexId < 0 || startVertexId >= idContext.getBiDirectionalDictionary().size()) {
-            throw new IllegalArgumentException("Starting vertex ID " + startVertexId + " does not exist.");
+        if (startVertexId < 0 || startVertexId >= idContext.getBiDirectionalDictionary().size() 
+                || getResolvedVertexLabel(startVertexId) == null) {
+            throw new IllegalArgumentException("Starting vertex ID " + startVertexId + " is invalid or has been soft-deleted.");
         }
 
         if (k < 0) {
@@ -712,5 +714,275 @@ public class GraphIngestionEngine {
             }
         }
         return null;
+    }
+
+    /**
+     * Soft-deletes a vertex according to the parameters in the {@link com.self.help.input.VertexDeleteRequest}.
+     * Supports optional recursive cascades along active downstream and upstream edges.
+     * Soft-tombstones connected edges by nullifying the deleted node's side in those rows,
+     * converting them into single-vertex active rows.
+     *
+     * @param request deletion configuration payload
+     * @return true if at least one active vertex was successfully soft-deleted, false otherwise
+     */
+    private java.util.Set<Integer> collectVerticesToDelete(@NotNull com.self.help.input.VertexDeleteRequest request) {
+        Integer rootId = request.nodeId();
+        if (rootId == null) {
+            return java.util.Collections.emptySet();
+        }
+
+        NodePropertyPairContext idContext = graphEngineContext.getIdContext();
+        int numIds = idContext.getBiDirectionalDictionary().size();
+        if (rootId < 0 || rootId >= numIds || getResolvedVertexLabel(rootId) == null) {
+            return java.util.Collections.emptySet();
+        }
+
+        java.util.Set<Integer> verticesToDelete = new java.util.LinkedHashSet<>();
+        verticesToDelete.add(rootId);
+
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            
+            java.util.Set<Integer> downstreamCandidates = new java.util.LinkedHashSet<>();
+            java.util.Set<Integer> upstreamCandidates = new java.util.LinkedHashSet<>();
+
+            for (int currentId : verticesToDelete) {
+                // Outgoing downstream candidates
+                if (request.downStream()) {
+                    RoaringBitmap fromRows = idContext.getFromInvertedIndexColumn().getRowsForValueOrNull(currentId);
+                    RoaringBitmap activeFrom = getActiveRows(fromRows, graphEngineContext.getFromDeleted());
+                    for (int rowId : activeFrom) {
+                        if (!graphEngineContext.getToDeleted().contains(rowId)) {
+                            int toId = idContext.getToIntegerColumnarStore().getInt(rowId);
+                            if (toId >= 0 && toId < numIds && getResolvedVertexLabel(toId) != null && !verticesToDelete.contains(toId)) {
+                                downstreamCandidates.add(toId);
+                            }
+                        }
+                    }
+                }
+
+                // Incoming upstream candidates
+                if (request.upstream()) {
+                    RoaringBitmap toRows = idContext.getToInvertedIndexColumn().getRowsForValueOrNull(currentId);
+                    RoaringBitmap activeTo = getActiveRows(toRows, graphEngineContext.getToDeleted());
+                    for (int rowId : activeTo) {
+                        if (!graphEngineContext.getFromDeleted().contains(rowId)) {
+                            int fromId = idContext.getFromIntegerColumnarStore().getInt(rowId);
+                            if (fromId >= 0 && fromId < numIds && getResolvedVertexLabel(fromId) != null && !verticesToDelete.contains(fromId)) {
+                                upstreamCandidates.add(fromId);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Verify downstream candidates: all active incoming must come from verticesToDelete set
+            for (int candidate : downstreamCandidates) {
+                if (allIncomingFromDeleted(candidate, verticesToDelete, idContext, numIds)) {
+                    verticesToDelete.add(candidate);
+                    changed = true;
+                    break;
+                }
+            }
+
+            if (changed) continue;
+
+            // Verify upstream candidates: all active outgoing must go to verticesToDelete set
+            for (int candidate : upstreamCandidates) {
+                if (allOutgoingToDeleted(candidate, verticesToDelete, idContext, numIds)) {
+                    verticesToDelete.add(candidate);
+                    changed = true;
+                    break;
+                }
+            }
+        }
+
+        return verticesToDelete;
+    }
+
+    public synchronized boolean deleteVertex(@NotNull com.self.help.input.VertexDeleteRequest request) {
+        java.util.Set<Integer> verticesToDelete = collectVerticesToDelete(request);
+        if (verticesToDelete.isEmpty()) {
+            return false;
+        }
+
+        NodePropertyPairContext idContext = graphEngineContext.getIdContext();
+
+        // Log the entities to be deleted
+        System.out.println("=== Deletion Plan ===");
+        System.out.println("Vertices to be deleted:");
+        for (int vId : verticesToDelete) {
+            String sourceId = getSourceId(vId);
+            String label = getResolvedVertexLabel(vId);
+            System.out.println("  - Vertex ID: " + vId + " (SourceId: " + sourceId + ", Label: " + label + ")");
+        }
+        
+        System.out.println("Edges affected (soft-deleted or nullified):");
+        java.util.Set<Integer> affectedRows = new java.util.LinkedHashSet<>();
+        for (int vId : verticesToDelete) {
+            RoaringBitmap fromRows = idContext.getFromInvertedIndexColumn().getRowsForValueOrNull(vId);
+            if (fromRows != null) {
+                for (int rId : fromRows) {
+                    affectedRows.add(rId);
+                }
+            }
+            RoaringBitmap toRows = idContext.getToInvertedIndexColumn().getRowsForValueOrNull(vId);
+            if (toRows != null) {
+                for (int rId : toRows) {
+                    affectedRows.add(rId);
+                }
+            }
+        }
+        for (int rId : affectedRows) {
+            int fromVal = idContext.getFromIntegerColumnarStore().getInt(rId);
+            int toVal = idContext.getToIntegerColumnarStore().getInt(rId);
+            String fromStr = getSourceId(fromVal);
+            String toStr = getSourceId(toVal);
+            System.out.println("  - Edge Row ID: " + rId + " (" + fromStr + " -> " + toStr + ")");
+        }
+        System.out.println("=====================");
+
+        // 2. Perform soft deletion on the collected vertices & physically update inverted indexes
+        boolean anyDeleted = false;
+        for (int vId : verticesToDelete) {
+            // Nullify FROM side of all occurrences
+            RoaringBitmap fromRows = idContext.getFromInvertedIndexColumn().getRowsForValueOrNull(vId);
+            if (fromRows != null && !fromRows.isEmpty()) {
+                graphEngineContext.getFromDeleted().or(fromRows);
+                fromRows.clear();
+                anyDeleted = true;
+            }
+
+            // Nullify TO side of all occurrences
+            RoaringBitmap toRows = idContext.getToInvertedIndexColumn().getRowsForValueOrNull(vId);
+            if (toRows != null && !toRows.isEmpty()) {
+                graphEngineContext.getToDeleted().or(toRows);
+                toRows.clear();
+                anyDeleted = true;
+            }
+        }
+
+        return anyDeleted;
+    }
+
+    /**
+     * Calculates and returns a map of all vertex IDs and their labels that would be impacted
+     * (deleted) if the specified deletion configuration request was executed.
+     *
+     * @param request deletion configuration payload
+     * @return map from numeric vertex ID to display label of impacted vertices
+     */
+    public synchronized java.util.Map<Integer, String> getImpactedVertices(@NotNull com.self.help.input.VertexDeleteRequest request) {
+        java.util.Set<Integer> verticesToDelete = collectVerticesToDelete(request);
+        if (verticesToDelete.isEmpty()) {
+            return java.util.Collections.emptyMap();
+        }
+
+        java.util.Map<Integer, String> impacted = new java.util.LinkedHashMap<>(verticesToDelete.size());
+        for (int vId : verticesToDelete) {
+            String label = getResolvedVertexLabel(vId);
+            if (label != null) {
+                impacted.put(vId, label);
+            }
+        }
+        return impacted;
+    }
+
+    private boolean allIncomingFromDeleted(int vId, java.util.Set<Integer> deletedSet, NodePropertyPairContext idContext, int numIds) {
+        RoaringBitmap toRows = idContext.getToInvertedIndexColumn().getRowsForValueOrNull(vId);
+        RoaringBitmap activeTo = getActiveRows(toRows, graphEngineContext.getToDeleted());
+        for (int rowId : activeTo) {
+            if (!graphEngineContext.getFromDeleted().contains(rowId)) {
+                int fromId = idContext.getFromIntegerColumnarStore().getInt(rowId);
+                if (fromId >= 0 && fromId < numIds && getResolvedVertexLabel(fromId) != null && !deletedSet.contains(fromId)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private boolean allOutgoingToDeleted(int vId, java.util.Set<Integer> deletedSet, NodePropertyPairContext idContext, int numIds) {
+        RoaringBitmap fromRows = idContext.getFromInvertedIndexColumn().getRowsForValueOrNull(vId);
+        RoaringBitmap activeFrom = getActiveRows(fromRows, graphEngineContext.getFromDeleted());
+        for (int rowId : activeFrom) {
+            if (!graphEngineContext.getToDeleted().contains(rowId)) {
+                int toId = idContext.getToIntegerColumnarStore().getInt(rowId);
+                if (toId >= 0 && toId < numIds && getResolvedVertexLabel(toId) != null && !deletedSet.contains(toId)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Soft-deletes a specific edge by its RawDataStore row index.
+     *
+     * @param rowId the index of the row to delete
+     * @return true if the edge was active and successfully deleted, false otherwise
+     */
+    public synchronized boolean deleteEdge(int rowId) {
+        if (rowId < 0 || rowId >= getIngestedRowCount()) {
+            return false;
+        }
+        boolean alreadyFromDeleted = graphEngineContext.getFromDeleted().contains(rowId);
+        boolean alreadyToDeleted = graphEngineContext.getToDeleted().contains(rowId);
+        if (alreadyFromDeleted && alreadyToDeleted) {
+            return false; // already fully deleted
+        }
+
+        NodePropertyPairContext idContext = graphEngineContext.getIdContext();
+        int fromVertexId = idContext.getFromIntegerColumnarStore().getInt(rowId);
+        int toVertexId = idContext.getToIntegerColumnarStore().getInt(rowId);
+
+        // Log edge deletion
+        String fromStr = getSourceId(fromVertexId);
+        String toStr = getSourceId(toVertexId);
+        System.out.println("Deleting Edge: RowId=" + rowId + " (" + fromStr + " -> " + toStr + ")");
+
+        // Remove row index from inverted index bitmaps
+        idContext.getFromInvertedIndexColumn().removeRowFromValue(fromVertexId, rowId);
+        idContext.getToInvertedIndexColumn().removeRowFromValue(toVertexId, rowId);
+
+        graphEngineContext.getFromDeleted().add(rowId);
+        graphEngineContext.getToDeleted().add(rowId);
+        return true;
+    }
+
+    /**
+     * Soft-deletes all active edges connecting a specific FROM node to a specific TO node.
+     *
+     * @param fromVertexId numeric ID of the source node
+     * @param toVertexId   numeric ID of the target node
+     * @return true if at least one active edge was successfully deleted, false otherwise
+     */
+    public synchronized boolean deleteEdge(int fromVertexId, int toVertexId) {
+        NodePropertyPairContext idContext = graphEngineContext.getIdContext();
+        int numIds = idContext.getBiDirectionalDictionary().size();
+        if (fromVertexId < 0 || fromVertexId >= numIds || toVertexId < 0 || toVertexId >= numIds) {
+            return false;
+        }
+
+        RoaringBitmap fromRows = idContext.getFromInvertedIndexColumn().getRowsForValueOrNull(fromVertexId);
+        RoaringBitmap toRows = idContext.getToInvertedIndexColumn().getRowsForValueOrNull(toVertexId);
+        if (fromRows == null || toRows == null) {
+            return false;
+        }
+
+        // Intersect outgoing rows of FROM node and incoming rows of TO node
+        RoaringBitmap matchingRows = RoaringBitmap.and(fromRows, toRows);
+        if (matchingRows.isEmpty()) {
+            return false;
+        }
+
+        boolean anyDeleted = false;
+        for (int rowId : matchingRows) {
+            if (deleteEdge(rowId)) {
+                anyDeleted = true;
+            }
+        }
+        return anyDeleted;
     }
 }

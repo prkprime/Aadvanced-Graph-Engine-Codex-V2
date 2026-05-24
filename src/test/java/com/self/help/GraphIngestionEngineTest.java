@@ -438,6 +438,45 @@ public class GraphIngestionEngineTest {
         assertEquals("LabelV1", response.resolvedLabel());
         assertTrue(response.resolvedAttributes().isEmpty());
     }
+
+    @Test
+    public void testDependentCascadeDeletionExclusivity() {
+        RawDataStore store = new RawDataStore(List.of("fromId", "toId"));
+        store.ingestRow(new String[]{"A", "B"});  // Row 0
+        store.ingestRow(new String[]{"A", "X"});  // Row 1
+        store.ingestRow(new String[]{"X", "Y"});  // Row 2
+        store.ingestRow(new String[]{"A0", "B"}); // Row 3
+
+        GraphMappingSpec spec = GraphMappingSpec.builder()
+                .idPair("fromId", "toId")
+                .build();
+        GraphIngestionEngine engine = new GraphIngestionEngine(store, spec);
+        engine.ingest(0);
+        engine.ingest(1);
+        engine.ingest(2);
+        engine.ingest(3);
+
+        int idA = engine.getNumericIdBySourceId("A");
+        int idB = engine.getNumericIdBySourceId("B");
+        int idX = engine.getNumericIdBySourceId("X");
+        int idY = engine.getNumericIdBySourceId("Y");
+        int idA0 = engine.getNumericIdBySourceId("A0");
+
+        // Delete A with downstream cascade
+        com.self.help.input.VertexDeleteRequest request = new com.self.help.input.VertexDeleteRequest(idA, true, false);
+        boolean success = engine.deleteVertex(request);
+
+        assertTrue(success);
+
+        // Verify deleted set: A, X, Y are deleted
+        assertNull(engine.getResolvedVertexLabel(idA));
+        assertNull(engine.getResolvedVertexLabel(idX));
+        assertNull(engine.getResolvedVertexLabel(idY));
+
+        // Verify active set: B and A0 are active!
+        assertNotNull(engine.getResolvedVertexLabel(idB));
+        assertNotNull(engine.getResolvedVertexLabel(idA0));
+    }
 }
 
 

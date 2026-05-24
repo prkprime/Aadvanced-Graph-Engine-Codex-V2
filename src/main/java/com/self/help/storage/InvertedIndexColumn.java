@@ -79,4 +79,16 @@ public class InvertedIndexColumn {
     public void add(int encodedValueId, int rowId) {
         addRowToValue(encodedValueId, rowId);
     }
+
+    /**
+     * Removes a row id from the bitmap bucket for a dictionary id.
+     *
+     * @param dictId encoded value id
+     * @param rowId  row id to remove association with the encoded value
+     */
+    public void removeRowFromValue(int dictId, int rowId) {
+        if (dictId >= 0 && dictId < bitmaps.length && bitmaps[dictId] != null) {
+            bitmaps[dictId].remove(rowId);
+        }
+    }
 }
