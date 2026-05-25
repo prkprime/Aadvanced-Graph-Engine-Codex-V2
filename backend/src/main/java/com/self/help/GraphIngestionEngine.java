@@ -433,10 +433,10 @@ public class GraphIngestionEngine {
      * Computes per-vertex edge statistics for every known vertex in the graph.
      * <p>
      * For each vertex numeric id, the method counts active outgoing edges
-     * (rows where that vertex appears on the FROM side and is not tombstoned)
+     * (rows where that vertex appears on the FROM side and neither side is tombstoned)
      * and active incoming edges (rows where that vertex appears on the TO side
-     * and is not tombstoned). Tombstoned rows are excluded using the
-     * {@code fromDeleted} and {@code toDeleted} bitmaps.
+     * and neither side is tombstoned). A row is live only when absent from both
+     * {@code fromDeleted} and {@code toDeleted}.
      * <p>
      * The returned map is keyed by the compact numeric vertex id assigned by
      * the {@link BiDirectionalDictionary} during ingestion.
@@ -462,9 +462,11 @@ public class GraphIngestionEngine {
      * Computes edge statistics for a specific vertex in the graph.
      * <p>
      * Counts active outgoing edges (rows where that vertex appears on the FROM side
-     * and is not tombstoned) and active incoming edges (rows where that vertex appears
-     * on the TO side and is not tombstoned). Tombstoned rows are excluded using the
-     * {@code fromDeleted} and {@code toDeleted} bitmaps.
+     * and neither side of the row is tombstoned) and active incoming edges (rows where
+     * that vertex appears on the TO side and neither side is tombstoned). A row is
+     * considered live only when it is absent from both {@code fromDeleted} and
+     * {@code toDeleted} — a row whose opposite side was tombstoned by a neighbour
+     * deletion is a dead edge and must not be counted.
      *
      * @param vertexId encoded integer id of the vertex
      * @return {@link GraphNodeStats} for the vertex, or {@code null} if the vertex id is out of bounds
@@ -479,20 +481,22 @@ public class GraphIngestionEngine {
 
         InvertedIndexColumn fromIndex = idContext.getFromInvertedIndexColumn();
         InvertedIndexColumn toIndex = idContext.getToInvertedIndexColumn();
-        RoaringBitmap fromDeleted = graphEngineContext.getFromDeleted();
-        RoaringBitmap toDeleted = graphEngineContext.getToDeleted();
+        // A row is dead when EITHER side is tombstoned, so mask against the union.
+        RoaringBitmap eitherDeleted = RoaringBitmap.or(
+                graphEngineContext.getFromDeleted(),
+                graphEngineContext.getToDeleted());
 
-        int outgoing = activeCount(fromIndex.getRowsForValueOrNull(vertexId), fromDeleted);
-        int incoming = activeCount(toIndex.getRowsForValueOrNull(vertexId), toDeleted);
+        int outgoing = activeCount(fromIndex.getRowsForValueOrNull(vertexId), eitherDeleted);
+        int incoming = activeCount(toIndex.getRowsForValueOrNull(vertexId), eitherDeleted);
         return new GraphNodeStats(outgoing, incoming);
     }
 
     /**
-     * Returns the number of active (non-tombstoned) rows in the supplied bitmap.
+     * Returns the number of rows present in {@code rows} but absent from {@code deleted}.
      *
      * @param rows    bitmap of candidate row ids, or {@code null} when none exist
      * @param deleted tombstone bitmap to subtract from the candidate set
-     * @return count of rows present in {@code rows} but absent from {@code deleted}
+     * @return active row count
      */
     private static int activeCount(@Nullable RoaringBitmap rows, @NotNull RoaringBitmap deleted) {
         if (rows == null || rows.isEmpty()) {
