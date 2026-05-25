@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Graph Engine POC</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header id="header">
+  <span class="app-title">⬡ Graph Engine POC</span>
+  <span id="graph-stats" class="stats-badge"></span>
+  <div class="spacer"></div>
+  <button id="btn-clear" class="btn btn-ghost" onclick="clearHighlight()" style="display:none">✕ Clear Highlight</button>
+  <button class="btn btn-ghost" onclick="diagram && diagram.zoomToFit()">⊡ Fit</button>
+  <button class="btn btn-primary" onclick="loadFullGraph()">↺ Reload</button>
+</header>
+
+<div id="body">
+  <div id="main-area">
+    <div id="diagram-wrap">
+      <div id="myDiagramDiv"></div>
+    </div>
+    <aside id="side-panel">
+      <div id="panel-content"></div>
+    </aside>
+  </div>
+
+  <div id="rows-panel" class="collapsed">
+    <div class="rows-header" onclick="toggleRowsPanel()">
+      <span id="rows-chevron" class="rows-chevron">▶</span>
+      <span id="rows-title">Rows</span>
+    </div>
+    <div class="rows-body">
+      <table class="rows-table">
+        <thead id="rows-thead"></thead>
+        <tbody id="rows-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- GoJS 2.3 from CDN -->
+<script src="https://unpkg.com/gojs@2.3/release/go.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
