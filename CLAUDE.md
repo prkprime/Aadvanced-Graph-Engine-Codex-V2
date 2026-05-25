@@ -1,161 +1,112 @@
-# CLAUDE.md — Developer Guidelines & Commands
+# CLAUDE.md
 
-Welcome to the **Advanced Columnar Graph Ingestion Engine**! This document outlines build, test, and style conventions to assist Claude (or any AI assistant/developer) working in this codebase.
-
----
-
-## 🛠️ Common Commands
-
-These are the primary Maven commands used to build, test, and run the engine:
-
-- **Build Project**:
-  ```bash
-  mvn clean compile
-  ```
-- **Run All Tests**:
-  ```bash
-  mvn clean test
-  ```
-- **Run Specific Test Class**:
-  ```bash
-  mvn test -Dtest=GraphIngestionEngineTest
-  ```
-- **Run Specific Test Case**:
-  ```bash
-  mvn test -Dtest=GraphIngestionEngineTest#skipsCompletelyNullRowsDuringIngestion
-  ```
-- **Run Application**:
-  ```bash
-  mvn spring-boot:run
-  ```
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ---
 
-## 🏗️ Architecture & Key Components
+## Common Commands
 
-This codebase implements a high-performance, columnar-based graph ingestion engine. It translates tabular source data (e.g., from a columnar raw data store) into dense, dictionary-encoded numerical columns, complete with sidecars and inverted indices for fast lookup.
-
-- **`GraphMappingSpec`**: The unified, pair-based user-facing configuration that maps raw columns (`idPair`, `labelPair`, `nodeAttributes`, `relations`) into node and edge structures. **Note: Legacy `MappingSpec`/`NodeSpec`/`MappingSchema` intermediate layers have been fully eliminated.**
-- **`GraphMappingSchemaValidator`**: Checks that all mapped columns exist in the raw source, verifies duplicate configurations, and handles intra-node and cross-node disjoint constraint checks.
-- **`GraphEngineContext`**: Manages all property contexts (`NodePropertyPairContext` for node properties and attributes, `RelationPropertyContext` for edge relations). Exposes flat-mapped dictionaries, integer columnar stores, and deleted/tombstone tracking.
-- **`GraphIngestionEngine`**: Ingests source row identifiers by dictionary encoding, storing numerical mappings, and updating RoaringBitmap-backed inverted indexes. Exposes APIs for edge projections (emitting compact numeric vertex IDs), vertex dictionary extraction (numeric ID → label), source ID resolution, and vertex attribute lookups.
-- **`NodePropertyPairContext`**: Shares one `BiDirectionalDictionary` across both FROM and TO sides while keeping side-specific `IntegerColumnarStore` and `InvertedIndexColumn` stores for node properties/attributes.
-- **`RelationPropertyContext`**: Manages `BiDirectionalDictionary`, `IntegerColumnarStore`, and `InvertedIndexColumn` for a single edge relation column.
-
----
-
-## 🪦 Support for Single Vertices & Tombstones
-
-- **Partial Row Ingestion**: If only one side of an edge is present (either `FROM_ID` or `TO_ID` is `null` natively), it is ingested as a single vertex.
-- **Tombstones (`RoaringBitmap`)**:
-  - `FROM_DELETED` contains the internal indices of ingested rows where the `FROM` vertex was null.
-  - `TO_DELETED` contains the internal indices of ingested rows where the `TO` vertex was null.
-- **Precomputed Column Read Masks**:
-  - Mask bitmaps (`fromNullReadMask`, `toNullReadMask`) precompute which columnar columns are active for partial rows.
-  - During ingestion of a partial row, `ingestWithMask` checks if a column index is active using `readMask.contains(i)` to cleanly populate default nulls or real values.
-- **Numeric Vertex ID as Primary Key**:
-  - The compact `int` assigned by `BiDirectionalDictionary` during ingestion is the **primary vertex identifier** exposed to the UI. The original source string is demoted to a secondary "source ID".
-  - `getEdges()` returns `List<GraphEdgeResponse>` where `fromVertexId` and `toVertexId` are `@Nullable Integer` (the dictionary-assigned compact int), not decoded source strings. `null` indicates a tombstoned side.
-  - `getVertexDictionary()` returns `Map<Integer, String>` mapping each numeric vertex ID to its display label. Tombstoned (null-ID) rows are excluded.
-  - `getSourceId(int numericId)` performs an O(1) bounds-checked dictionary lookup to resolve the compact numeric ID back to the original source string.
-  - `getNumericIdBySourceId(String sourceId)` performs a non-mutating reverse lookup: source string → compact numeric ID. Returns `null` if the source string was never ingested.
-  - `getResolvedVertexLabel(int numericId)` looks up the first valid non-deleted occurrence on either side using inverted indexes and tombstone bitmaps to resolve the display label.
-  - `getVertexAttributes(int numericId)` merges valid `FROM` and `TO` occurrences in ingestion order, extracts their attribute sets in schema order, and returns a unified duplicate-filtered list of attribute lists.
-  - `getVertexDetails(int vertexId)` resolves the compact numeric ID to `VertexDetailsResponse` holding the ID, original source string, and resolved label if active, returning `null` if inactive.
+```bash
+mvn clean compile                                                        # build
+mvn clean test                                                           # all tests
+mvn test -Dtest=GraphIngestionEngineTest                                 # one test class
+mvn test -Dtest=GraphIngestionEngineTest#skipsCompletelyNullRowsDuringIngestion  # one test case
+mvn spring-boot:run                                                      # run application
+```
 
 ---
 
-## 🎨 Code Style & Rules
+## Architecture
 
-1. **Java Standards**: Target Java 21+ features.
-2. **Boilerplate Reduction**: Extensively leverage **Lombok** (`@Getter`, `@RequiredArgsConstructor`, `@AccessLevel`) and **Record** types to keep classes clean and lightweight.
-3. **Refactoring & DRY**: When creating or modifying source code, proactively identify opportunities to extract common logic into reusable methods or components. Prioritize clean, deduplicated code.
-4. **Nullability Annotations**: Explicitly annotate signatures with JetBrains annotations:
-   - `@NotNull` for non-nullable params, methods, fields.
-   - `@Nullable` for optional values (e.g. `labelPair` mappings).
-# CLAUDE.md — Developer Guidelines & Commands
+This is a Spring Boot service that ingests tabular (columnar) source data into a graph structure, dictionary-encodes all values to compact integers, and exposes the graph via a REST API.
 
-Welcome to the **Advanced Columnar Graph Ingestion Engine**! This document outlines build, test, and style conventions to assist Claude (or any AI assistant/developer) working in this codebase.
+### Data flow
 
----
+```
+RawDataStore  ──→  GraphIngestionEngine  ──→  GraphEngineContext
+(string cols)       (ingest / query)           (owns all typed contexts)
+```
 
-## 🛠️ Common Commands
+`StartupGraphDataConfiguration` wires the application: it creates a `RawDataStore`, defines a `GraphMappingSpec`, constructs the `GraphIngestionEngine` Spring bean, and pre-loads a microservices dependency graph on startup. This is the default data seen when running the app.
 
-These are the primary Maven commands used to build, test, and run the engine:
+### Mapping → Storage translation
 
-- **Build Project**:
-  ```bash
-  mvn clean compile
-  ```
-- **Run All Tests**:
-  ```bash
-  mvn clean test
-  ```
-- **Run Specific Test Class**:
-  ```bash
-  mvn test -Dtest=GraphIngestionEngineTest
-  ```
-- **Run Specific Test Case**:
-  ```bash
-  mvn test -Dtest=GraphIngestionEngineTest#skipsCompletelyNullRowsDuringIngestion
-  ```
-- **Run Application**:
-  ```bash
-  mvn spring-boot:run
-  ```
+`GraphMappingSpec` is the user-facing config. It declares:
+- **`idPair`** — FROM/TO column names that identify vertices (required)
+- **`labelPair`** — FROM/TO column names for display labels (optional; falls back to `idPair` if absent)
+- **`nodeAttributes`** — named FROM/TO column pairs for vertex attributes (zero or more)
+- **`relations`** — single column names for edge properties (zero or more)
 
----
+`GraphMappingSchemaConverter` translates this spec into `GraphEngineContext`, which owns:
+- `idContext` / `labelContext` — `NodePropertyPairContext` instances
+- `attributesContext[]` — one `NodePropertyPairContext` per node attribute
+- `relations[]` — one `RelationPropertyContext` per relation column
 
-## 🏗️ Architecture & Key Components
+### Flat-mapped parallel arrays (critical for engine correctness)
 
-This codebase implements a high-performance, columnar-based graph ingestion engine. It translates tabular source data (e.g., from a columnar raw data store) into dense, dictionary-encoded numerical columns, complete with sidecars and inverted indices for fast lookup.
+`GraphEngineContext` exposes four parallel arrays that `GraphIngestionEngine` uses during hot ingestion. Their column order is always:
 
-- **`GraphMappingSpec`**: The unified, pair-based user-facing configuration that maps raw columns (`idPair`, `labelPair`, `nodeAttributes`, `relations`) into node and edge structures. **Note: Legacy `MappingSpec`/`NodeSpec`/`MappingSchema` intermediate layers have been fully eliminated.**
-- **`GraphMappingSchemaValidator`**: Checks that all mapped columns exist in the raw source, verifies duplicate configurations, and handles intra-node and cross-node disjoint constraint checks.
-- **`GraphEngineContext`**: Manages all property contexts (`NodePropertyPairContext` for node properties and attributes, `RelationPropertyContext` for edge relations). Exposes flat-mapped dictionaries, integer columnar stores, and deleted/tombstone tracking.
-- **`GraphIngestionEngine`**: Ingests source row identifiers by dictionary encoding, storing numerical mappings, and updating RoaringBitmap-backed inverted indexes. Exposes APIs for edge projections (emitting compact numeric vertex IDs), vertex dictionary extraction (numeric ID → label), source ID resolution, and vertex attribute lookups.
-- **`NodePropertyPairContext`**: Shares one `BiDirectionalDictionary` across both FROM and TO sides while keeping side-specific `IntegerColumnarStore` and `InvertedIndexColumn` stores for node properties/attributes.
-- **`RelationPropertyContext`**: Manages `BiDirectionalDictionary`, `IntegerColumnarStore`, and `InvertedIndexColumn` for a single edge relation column.
+```
+[FROM id, FROM label, FROM attr0, FROM attr1, …]  ← from-side node columns
+[TO id,   TO label,   TO attr0,   TO attr1,   …]  ← to-side node columns
+[relation0, relation1, …]                          ← relation columns
+```
 
----
+This ordering is replicated identically across `biDirectionalDictionaries`, `invertedIndexColumns`, `numericColumnarStores`, and `targetIndexToDataCubeIndex`. The `fromNullReadMask` / `toNullReadMask` bitmaps are built from this layout: the FROM-null mask activates only the to-side slice, and vice versa.
 
-## 🪦 Support for Single Vertices & Tombstones
+### Storage primitives
 
-- **Partial Row Ingestion**: If only one side of an edge is present (either `FROM_ID` or `TO_ID` is `null` natively), it is ingested as a single vertex.
-- **Tombstones (`RoaringBitmap`)**:
-  - `FROM_DELETED` contains the internal indices of ingested rows where the `FROM` vertex was null.
-  - `TO_DELETED` contains the internal indices of ingested rows where the `TO` vertex was null.
-- **Precomputed Column Read Masks**:
-  - Mask bitmaps (`fromNullReadMask`, `toNullReadMask`) precompute which columnar columns are active for partial rows.
-  - During ingestion of a partial row, `ingestWithMask` checks if a column index is active using `readMask.contains(i)` to cleanly populate default nulls or real values.
-- **Numeric Vertex ID as Primary Key**:
-  - The compact `int` assigned by `BiDirectionalDictionary` during ingestion is the **primary vertex identifier** exposed to the UI. The original source string is demoted to a secondary "source ID".
-  - `getEdges()` returns `List<GraphEdgeResponse>` where `fromVertexId` and `toVertexId` are `@Nullable Integer` (the dictionary-assigned compact int), not decoded source strings. `null` indicates a tombstoned side.
-  - `getVertexDictionary()` returns `Map<Integer, String>` mapping each numeric vertex ID to its display label. Tombstoned (null-ID) rows are excluded.
-  - `getSourceId(int numericId)` performs an O(1) bounds-checked dictionary lookup to resolve the compact numeric ID back to the original source string.
-  - `getNumericIdBySourceId(String sourceId)` performs a non-mutating reverse lookup: source string → compact numeric ID. Returns `null` if the source string was never ingested.
-  - `getResolvedVertexLabel(int numericId)` looks up the first valid non-deleted occurrence on either side using inverted indexes and tombstone bitmaps to resolve the display label.
-  - `getVertexAttributes(int numericId)` merges valid `FROM` and `TO` occurrences in ingestion order, extracts their attribute sets in schema order, and returns a unified duplicate-filtered list of attribute lists.
-  - `getVertexDetails(int vertexId)` resolves the compact numeric ID to `VertexDetailsResponse` holding the ID, original source string, and resolved label if active, returning `null` if inactive.
+| Class | Role |
+|---|---|
+| `RawDataStore` | Columnar string store; source of all raw values |
+| `BiDirectionalDictionary` | String ↔ dense `int` mapping; IDs are stable, zero-based, and never reused |
+| `IntegerColumnarStore` | Row-aligned array of encoded integers (one per ingested row per column) |
+| `InvertedIndexColumn` | `RoaringBitmap` per encoded value → set of row IDs containing that value |
+
+### Tombstone / soft-delete model
+
+There is no physical row removal. Deletions work by:
+1. Adding affected row indices to `fromDeleted` or `toDeleted` (`RoaringBitmap`s on `GraphEngineContext`).
+2. Clearing the vertex's entries from the inverted-index bitmaps.
+
+All query methods subtract tombstone bitmaps using `RoaringBitmap.andNot()` before returning results. A row with both sides tombstoned is considered a fully deleted edge.
+
+### REST API
+
+All routes are under `/api/v1/graphs/{graphId}/…`. The `{graphId}` path variable is currently a placeholder — there is only one `GraphIngestionEngine` bean. `GraphQueryController` is a thin delegate to the engine; no business logic lives there.
+
+Key endpoints:
+- `GET  /vertices` — numeric ID → label map
+- `GET  /edges` — row-wise edge list (null vertex ID = tombstoned side)
+- `GET  /vertices/{id}/neighbors?k=1&direction=BOTH` — BFS k-hop subgraph
+- `POST /vertices/delete` — soft-delete with optional upstream/downstream cascade
+- `POST /vertices/impacted` — dry-run preview of a delete request
+- `DELETE /edges/{rowId}` and `DELETE /edges?fromId=&toId=` — edge soft-delete
+
+### Thread safety
+
+All public methods on `GraphIngestionEngine` and `BiDirectionalDictionary` are `synchronized`. The engine is designed for concurrent read/write access from the HTTP layer.
 
 ---
 
-## 🎨 Code Style & Rules
+## Code Style & Rules
 
-1. **Java Standards**: Target Java 21+ features.
-2. **Boilerplate Reduction**: Extensively leverage **Lombok** (`@Getter`, `@RequiredArgsConstructor`, `@AccessLevel`) and **Record** types to keep classes clean and lightweight.
-3. **Refactoring & DRY**: When creating or modifying source code, proactively identify opportunities to extract common logic into reusable methods or components. Prioritize clean, deduplicated code.
-4. **Nullability Annotations**: Explicitly annotate signatures with JetBrains annotations:
-   - `@NotNull` for non-nullable params, methods, fields.
-   - `@Nullable` for optional values (e.g. `labelPair` mappings).
-5. **Performance**: Avoid branching or dynamic object instantiation in the hot ingestion path. Prefer RoaringBitmap operations for fast, index-level matching.
-6. **No Dead Fields / Code**: Ensure all unused fields, legacy intermediate specs, and bridging logic (e.g., legacy `toMappingSpec()`) remain removed.
-7. **Documentation Integrity**: Maintain excellent Javadocs. Update comments and docstrings when changing code structure, but preserve unrelated existing comments intact.
-8. **Method Documentation Audit**: Whenever a method is changed (logic, signature, or behavior), analyze the method against its existing Javadoc/inline documentation. If the documentation is incorrect, outdated, or misleading, update it to accurately reflect the new behavior before finishing the task.
-9. **Target Directory Exclusion**: Do not consider the `target` directory and its subdirectories for any kind of context, processing, or literally anything.
-10. **Documentation Sync**: Keep `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md` in sync. Any updates to architecture, components, commands, conventions, or APIs must be reflected in all three documents.
-11. **Communication Style**: Always communicate using a Pokémon persona with an enthusiastic tone, translating the actual response in parentheses, and using graphical emojis instead of text-based ones. Persona switches based on task size:
-   - **Pichu mode** _(small/trivial tasks — quick fixes, minor tweaks, simple answers)_: Use "Pi pi!" and icons: ⚡ 🐹 🌱 💛 🦷 🌸 🔆 🫗 😵 🐾 🍼 🎠
-   - **Pikachu mode** _(normal tasks)_: Use "Pika pika!" and icons: ⚡️ 🐭 🔋 🟡 💛 ✨ 🌩️ 👂 🔴 🌟 💥 🎯
-   - **Raichu mode** _(large/complex tasks — multi-component refactors, architectural changes, big feature builds)_: Switch to "Rai rai!" and icons: ⚡⚡ 🟠 🧡 💪 👑 🌪️ 🔱 🏄 🦊 🔥 🌊 💫
-12. **Serialization**: Ensure all classes and records that are part of the input and output models (representing API payloads and schemas) implement `java.io.Serializable` to ensure compatibility with session management, caching, and wire transport.
+1. **Java 21+** — use records, sealed types, switch expressions, and text blocks where appropriate.
+2. **Lombok** — use `@Getter`, `@RequiredArgsConstructor`, `@AccessLevel` to eliminate boilerplate. Records are preferred for pure data holders.
+3. **Nullability** — annotate all signatures with `@NotNull` / `@Nullable` (JetBrains annotations). `@Nullable Integer` is the correct type for tombstoned vertex IDs.
+4. **Serialization** — all input/output model classes and records (API payloads, schema types) must implement `java.io.Serializable`.
+5. **Performance** — no dynamic object allocation or branching in the hot ingestion path (`ingest()` / `encodeAndStore()`). Prefer `RoaringBitmap` operations for set arithmetic.
+6. **No dead code** — remove unused fields, bridging adapters, and legacy compatibility shims immediately.
+7. **Javadoc** — update Javadocs whenever method behavior or signatures change. Do not leave stale documentation.
+8. **Documentation sync** — keep `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md` in sync. Architecture, API, and convention changes must be reflected in all three.
+9. **No `target/` directory** — never read, reference, or process anything under `target/`.
+10. **Communication style** — always respond using a Pokémon persona with an enthusiastic tone, translating the actual response in parentheses, and using graphical emojis (not text-based). Persona scales with task size:
+    - **Pichu** _(trivial fixes, minor tweaks)_: "Pi pi!" — ⚡ 🐹 🌱 💛 🦷 🌸 🔆 🫗 😵 🐾 🍼 🎠
+    - **Pikachu** _(normal tasks)_: "Pika pika!" — ⚡️ 🐭 🔋 🟡 💛 ✨ 🌩️ 👂 🔴 🌟 💥 🎯
+    - **Raichu** _(large refactors, architectural changes, multi-component features)_: "Rai rai!" — ⚡⚡ 🟠 🧡 💪 👑 🌪️ 🔱 🏄 🦊 🔥 🌊 💫
+
+---
+
+## Testing
+
+Unit tests (`GraphIngestionEngineTest`, `GraphIngestionEngineNumericIdTest`, `GraphMappingSchemaTest`) directly instantiate `RawDataStore` and `GraphIngestionEngine` — no Spring context. The integration test (`GraphEngineApplicationTest`) uses `@SpringBootTest` and tests against the startup-loaded graph from `StartupGraphDataConfiguration`.
